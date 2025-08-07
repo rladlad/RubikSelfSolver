@@ -229,6 +229,19 @@ namespace RubikBot{
 
     }
 
+    bool Rubik::getFace(int face, char* pArray3x3){
+        if (face>=6)
+            return false;
+
+        for (int r=0;r<3;r++){
+            for (int c=0;c<3;c++){
+                pArray3x3[r * 3 + c]=elements[face][r*3+c]->getColorChar();
+            }
+        }
+        
+        return true;   
+    }
+
 
     void Rubik::revalueMids(Element* el1, Element* el2)
     {

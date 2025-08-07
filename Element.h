@@ -31,6 +31,7 @@ namespace RubikBot{
         int getY(){return indexy;}
         int getX(){return indexx;}
         int getColor(){return color;}
+        char getColorChar();
         int getMarking(){return marking;}
         bool inPosition();
 

@@ -11,13 +11,12 @@ namespace RubikBot{
 
     enum class Color
     {
-    ORANGE=0,
-    GREEN,
-    RED,
-    BLUE,
-    WHITE,
-    YELLOW
-
+        ORANGE=0,
+        GREEN,
+        RED,
+        BLUE,
+        WHITE,
+        YELLOW
     };
 
     enum class EdgePiece
@@ -100,6 +99,8 @@ namespace RubikBot{
         //in which case; the actual position of the WHITE ORANGE is stored in initialorientation
         CubeOrientation getInitialCubeOrientation(){return initialOrientation;}
 
+        //Access functions
+        bool getFace(int face, char* pArray3x3);      //gets the 3x3 array of the given face and puts it in the pArray
 
     protected:
         void revalueMids(Element* el1, Element* el2);

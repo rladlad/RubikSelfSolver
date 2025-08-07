@@ -54,5 +54,29 @@ namespace RubikBot{
         return false;
     }
 
+    char Element::getColorChar(){
+        switch (color){
+            case 0:
+                return 'O';
+                break;
+            case 1:
+                return 'G';
+                break;
+            case 2:
+                return 'R';
+                break;
+            case 3:
+                return 'B';
+                break;
+            case 4:
+                return 'W';
+                break;
+            case 5:
+                return 'Y';
+                break;
+            default:
+                return 'X';
+        }
+    }
 
 }//namespace
