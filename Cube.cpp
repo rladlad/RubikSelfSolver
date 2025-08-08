@@ -8,6 +8,7 @@
 #include "Cube.h"
 #include "element.h"
 #include "globals.h"
+#include <arduino.h>
 
 #define MAXMOVES 18
 
@@ -616,58 +617,14 @@ namespace RubikBot{
             return false;
 
         // //init the move count to zero
-        // moves.clear();
+        moves.clear();
 
-        // //init the random number generator
-        // RCC_AHB2PeriphClockCmd(RCC_AHB2Periph_RNG,ENABLE);
-        // RNG_Cmd(ENABLE);
-
-
-        // for (int i=0;i<count;i++)
-        // {
-        // 	//get a random move from 18 different moves
-        // 	while (RNG_GetFlagStatus(RNG_FLAG_DRDY)!=SET);
-
-        // 	bool error=false;
-        // 	//check that there are no errors in the RNG
-        // 	if (RNG_GetFlagStatus(RNG_FLAG_SECS)==SET)
-        // 	{
-        // 		//reset the RNG
-        // 		RNG_ClearFlag(RNG_FLAG_SECS);
-
-        // 		RNG_Cmd(DISABLE);
-        // 		RNG_Cmd(ENABLE);
-        // 		error=true;
-        // 	}
-
-        // 	if (RNG_GetFlagStatus(RNG_FLAG_CECS)==SET)
-        // 	{
-        // 		//clear the clock signal
-        // 		RNG_ClearFlag(RNG_FLAG_CECS);
-
-        // 		//i dont know what else to do here
-        // 		error=true;
-        // 	}
-
-        // 	if (!error)
-        // 	{
-        // 		int m=RNG_GetRandomNumber() % MAXMOVES;
-
-        // 		//then execute the move (in software)
-        // 		doMove(m);
-        // 	}
-
-
-        // }
-
-        // //turn off the RNg
-        // RNG_Cmd(DISABLE);
-        // RNG_DeInit();
-        // RCC_AHB2PeriphClockCmd(RCC_AHB2Periph_RNG,DISABLE);
-
-        //at this point, the state is scrambled and we have the STATE of the cube
-        //to be sent to RASPI if needed
-        //we MUST retrieve the SHUFFLING MOVES and then EXECUTE it physicall by the BOT
+        for (int i=0;i<count;i++)
+        {
+           int m= random(0,18);
+           doMove(m); 
+           moves.appendMove(m);
+        }
 
         return true;
 
@@ -694,6 +651,33 @@ namespace RubikBot{
 
         solveYellowLayer();
 
+        //if not yet solved; then SOLVE IT AGAIN one more time
+        if (!isSolved()) {
+            solveYellowLayer();
+        }
+
+    }
+
+    bool Rubik::isSolved(){
+        //check all elements so that it is the same as initialized state
+        int color=0;
+        for (int face=0; face<6; face++)
+        {
+
+            for (int index=0; index < 9 ; index++)
+            {
+                //get the current element at the face, index
+                Element* el=this->elements[face][index];
+
+                if (el->getColor()!=color)
+                    return false;
+
+            }
+            color++;
+        }
+
+        //if it reaches here; the it is ok
+        return true;
     }
 
     int Rubik::optimizeMoves()
@@ -6469,7 +6453,12 @@ namespace RubikBot{
             while (el->getColor()!=el->getFace())
                 d();
         }
-        //else it is already solved
+        //NEWLY ADDED (Aug8_2025)
+        //else it is already solved but maybe needed to rotate the down face until the corners match the face
+        while (getElement(0,6)->getColor()!=getElement(0,4)->getColor() )
+        {
+            d();
+        }
 
     }
 
@@ -6583,6 +6572,19 @@ namespace RubikBot{
                         )
                     dp();
                     */
+
+                    //as per JPERM; the adjacent pieces that needs to be swap must be putg in FRONT and RIGHT
+                    //this is with respect to the down face; which means that edges to be swapped must be in FRONT and LEFT (inverted)
+                    //so check if we need to rotate the DOWN face
+
+                //NEWLY ADDED (Aug8_2025)
+                if ((getElement(0, 7)->getColor() == getElement(1, 4)->getColor()) && (getElement(1, 7)->getColor() == getElement(0, 4)->getColor()))
+                {
+
+                }
+                else {
+                    d();
+                }
                 pllAdjacentEdgeSwap();
             }
         }

@@ -95,6 +95,9 @@ namespace RubikBot{
                                             //this is used in solving and doing shuffling in the new version
         int getErroredColors();				//must be called to check if zero before calling solve
         bool areColorsOK();					//returns true if ok else false
+
+        bool isSolved();                    //returns true if the cube is in its initialized state; otherwise false; used for free-running test;
+
         //this ORIENTATION is UL unless initialized with COLORS
         //in which case; the actual position of the WHITE ORANGE is stored in initialorientation
         CubeOrientation getInitialCubeOrientation(){return initialOrientation;}
@@ -108,6 +111,8 @@ namespace RubikBot{
     public:
         bool shuffle(int count);	//shuffle the cube from initial state count number of times
                                     //the state of the cube should be tracked; max 200 count
+        
+
         void solve();
         int optimizeMoves();
         void setElement(int x, int y, Element* element);
