@@ -1,14 +1,18 @@
 #pragma once
 #include <cstdint>
 #include "globals.h"
+#include <math.h>
 
 class ServoArm
 {
 public:
-	ServoArm(uint8_t pin, uint32_t freq=50, uint8_t resolution=12);
+	ServoArm(uint8_t pin, uint32_t freq=50, uint8_t resolution=16);
 
-	void turnOn();		//attach the pwm signal to the servo
-	void turnOff();		//detach the pwm signal to the servo
+	void attach();		//attach the pwm signal to the servo
+	void detach();		//detach the pwm signal to the servo
+
+	void stop();			//stop the motor (1500us)
+	void release(){};		//PWM is ZERO????
 
 	bool isMoving() { return _isMoving; };	//is the servo moving?
 
@@ -17,9 +21,20 @@ public:
 	void rotate180CW();	//rotate the servo 180 degrees clockwise
 	void rotate180CCW();	//rotate the servo 180 degrees counter-clockwise
 
-	void setCurrentAngle(double angle) {_currentAngle = angle;	};	//set the current angle of the servo	
-	void evaluateMove(double currentAngle);	//this function should be called per frame to evalualate a moving servo if it has reached its target angle
-	
+	void setCurrentAngle(double angle) {_currentAngle = angle;};	//set the current angle of the servo	
+	bool evaluateMove();	//this function should be called per frame to evalualate a moving servo if it has reached its target angle return false if its not moving ; otherwise true
+
+protected:
+	float angleDiff(float current, float target) {
+  	  float diff = fmod((target - current + 540.0), 360.0) - 180.0;
+    	return diff;  // Range: -180 to +180 degrees
+	}
+
+	int pulseToDuty(int micros) {
+			// Converts microsecond pulse to 16-bit duty for 50Hz
+			return (micros * 2^_servoResolution) / 20000;  // 20ms period for 50Hz
+	}
+		
 private:
 	bool _isAttached{ false };
 	int _servoPin;				//the pin the servo is attached to
@@ -33,6 +48,6 @@ private:
 	double _targetAngle{ 0.0 };		//target angle of the servo
 	RotationDirection _direction{RotationDirection::None };	//direction of the rotation
 
-	const double _errorMargin{ 0.5 };	//error margin for angle comparison
+	const double _errorMargin{ 5.0 };	//error margin for angle comparison
 };
 

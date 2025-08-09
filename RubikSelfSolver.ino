@@ -1,6 +1,7 @@
 #include "Cube.h"
 #include "PCA9548A.h"
 #include <arduino.h>
+#include "ServoArm.h"
 
 using namespace RubikBot;
 
@@ -15,19 +16,13 @@ const int STATE_TESTSOLVE = 1;
 #define SCLPin 22
 #define SDAPin 21
 #define ResetPin 2
-#define SEN_O
-#define SEN_G
-#define SEN_R  
-#define SEN_B
-#define SEN_W
-#define SEN_Y
 
-#define SIG_O
-#define SIG_G
-#define SIG_R
-#define SIG_B
-#define SIG_W
-#define SIG_Y
+#define PWM_O  15
+#define PWM_G  16
+#define PWM_R
+#define PWM_B
+#define PWM_W
+#define PWM_Y
 
 
 
@@ -39,6 +34,11 @@ bool stringComplete = false;  // Whether the string is complete
 int state = STATE_IDLE;
 int solvecounter{0};
 
+//SERVO ARMS
+ServoArm servoOrange(PWM_O);
+ServoArm servoGreen(PWM_G);
+
+ServoArm* pServoArm[2]{};
 
 //for testing
 uint32_t currentseed{ 1 };
@@ -67,7 +67,32 @@ void setup() {
   mux.begin();
   mux.set();
 
-  
+  //initialize all servo arms
+  servoOrange.attach();
+  servoOrange.stop();
+
+  servoGreen.attach();
+  servoGreen.stop();
+
+  //store it in the array
+  pServoArm[1]=&servoOrange;
+  pServoArm[0]=&servoGreen;
+
+  //initialize all motors with starting angles
+  uint8_t buffer[2];
+  for (int i=0;i<2;i++){
+    if (!mux.readFromDevice(i+2, DEV_ADDR, REG_ADDR, buffer, 2))
+    {
+        Serial.println("Reading failed");
+    }
+    else{
+        uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
+        value = value >> 2;                                  // remove the last 2 bits
+        double angle = (value/16384.0)*360.0;
+
+        pServoArm[i]->setCurrentAngle(angle);
+    }
+  }
 }
 
 void loop() {
@@ -115,22 +140,25 @@ void loop() {
   //     break;
   // }
 
-  //testing the MUX and the SENSOR
+  //read ALL SENSORS
   uint8_t buffer[2];
+  for (int i=0;i<2;i++){
+    if (!mux.readFromDevice(i+2, DEV_ADDR, REG_ADDR, buffer, 2))
+    {
+        Serial.println("Reading failed");
+    }
+    else{
+        uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
+        value = value >> 2;                                  // remove the last 2 bits
+        double angle = (value/16384.0)*360.0;
 
-  if (!mux.readFromDevice(2, DEV_ADDR, REG_ADDR, buffer, 2))
-  {
-      Serial.println("Reading failed");
+        pServoArm[i]->setCurrentAngle(angle);
+    }
   }
-  else{
-      uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
-      value = value >> 2;                                  // remove the last 2 bits
-      Serial.print("Raw Angle :");
-      Serial.println(value);  
 
-      double angle = (value/16384.0)*360.0;
-      Serial.print("Angle :");
-      Serial.println(angle);  
+  //loop all servos and evaluate moves
+  for (int i=0;i<2;i++){
+    pServoArm[i]->evaluateMove();
   }
 
   delay(100);
@@ -162,7 +190,16 @@ void executeCommand(String cmd) {
     printCube(pCube);
     pCube->solve();
     printCube(pCube);
-  } else if (cmd == "d") {
+  } else if (cmd == "cw") {
+    pServoArm[0]->rotate90CW();
+    Serial.println("cw");
+  } else if (cmd == "ccw") {
+    pServoArm[0]->rotate90CCW();
+  
+  } else if (cmd == "180") {
+    pServoArm[0]->rotate90CCW();
+  }
+  else if (cmd == "d") {
     pCube->d();
     clearSerialMonitor();
     printCube(pCube);
