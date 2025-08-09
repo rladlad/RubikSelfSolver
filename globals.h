@@ -104,6 +104,12 @@ enum class BOT_Arm
 };
 
 
+enum class RotationDirection
+{
+	None=0,
+	Clockwise=1,
+	CounterClockwise=2
+};
 
 
 
