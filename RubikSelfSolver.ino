@@ -68,6 +68,8 @@ void setup() {
   mux.set();
 
   //initialize all servo arms
+  servoOrange.setRotationSpeedCW(1700);
+  servoOrange.setRotationSpeedCCW(1300);
   servoOrange.attach();
   servoOrange.stop();
 
@@ -97,49 +99,14 @@ void setup() {
 
 void loop() {
 
+  //unsigned long looptimer = micros();
+
   if (stringComplete) {
     executeCommand(inputString);
     inputString = "";
     stringComplete = false;
   }
-
-  // switch (state) {
-  //   case STATE_IDLE:
-  //     break;
-  //   case STATE_TESTSOLVE:
-  //     if (!isSolving) {
-  //       //shuffle using a seed (50 moves)
-  //       //currentseed = analogRead(0);// ^ millis();
-  //       randomSeed(currentseed++);
-  //       pCube->shuffle(20);
-
-  //       //solve
-  //       pCube->solve();
-
-  //       //if (!solved) print current seed and print the current cube
-  //       if (!pCube->isSolved()) {
-  //         clearSerialMonitor;
-  //         Serial.println("Failed Solve!!!");
-  //         Serial.print("Current Seed : ");
-  //         Serial.println(currentseed);
-  //         printCube(pCube);
-  //         isSolving = false;
-  //         state = STATE_IDLE;
-  //       } else {
-  //         pCube->initialize();
-  //         isSolving = false;  //so that another test will be run
-  //         solvecounter++;
-  //         Serial.println("Solved Cube # :" + String(solvecounter));
-  //         if (solvecounter>200000)
-  //           state=STATE_IDLE;
-  //       }
-
-  //     }
-  //     break;
-  //   default:
-  //     break;
-  // }
-
+  
   //read ALL SENSORS
   uint8_t buffer[2];
   for (int i=0;i<2;i++){
@@ -161,7 +128,8 @@ void loop() {
     pServoArm[i]->evaluateMove();
   }
 
-  delay(100);
+  //while ((micros()-looptimer)<10000)  ; //10ms for 100 frames a second
+
 }
 
 void serialEvent() {
@@ -191,13 +159,15 @@ void executeCommand(String cmd) {
     pCube->solve();
     printCube(pCube);
   } else if (cmd == "cw") {
-    pServoArm[0]->rotate90CW();
+    //pServoArm[1]->rotate90CW();
+    pServoArm[1]->rotateBy(-90.0);
     Serial.println("cw");
   } else if (cmd == "ccw") {
-    pServoArm[0]->rotate90CCW();
-  
+    pServoArm[1]->rotateBy(90.0);
+    //pServoArm[1]->rotate90CCW();
+    Serial.println("ccw");
   } else if (cmd == "180") {
-    pServoArm[0]->rotate90CCW();
+    pServoArm[1]->rotateBy(180);
   }
   else if (cmd == "d") {
     pCube->d();
