@@ -80,7 +80,7 @@ void setup() {
   pServoArm[1]=&servoOrange;
   pServoArm[0]=&servoGreen;
 
-  //initialize all motors with starting angles
+  //initialize all motors with reference angles
   uint8_t buffer[2];
   for (int i=0;i<2;i++){
     if (!mux.readFromDevice(i+2, DEV_ADDR, REG_ADDR, buffer, 2))
@@ -90,16 +90,14 @@ void setup() {
     else{
         uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
         value = value >> 2;                                  // remove the last 2 bits
-        double angle = (value/16384.0)*360.0;
+        float angle = (value/16384.0)*360.0;
 
-        pServoArm[i]->setCurrentAngle(angle);
+        pServoArm[i]->setReferenceAngle(angle);
     }
   }
 }
 
 void loop() {
-
-  //unsigned long looptimer = micros();
 
   if (stringComplete) {
     executeCommand(inputString);
@@ -125,10 +123,8 @@ void loop() {
 
   //loop all servos and evaluate moves
   for (int i=0;i<2;i++){
-    pServoArm[i]->evaluateMove();
+    pServoArm[i]->update();
   }
-
-  //while ((micros()-looptimer)<10000)  ; //10ms for 100 frames a second
 
 }
 
@@ -159,15 +155,14 @@ void executeCommand(String cmd) {
     pCube->solve();
     printCube(pCube);
   } else if (cmd == "cw") {
-    //pServoArm[1]->rotate90CW();
-    pServoArm[1]->rotateBy(-90.0);
+    pServoArm[1]->rotate90CW();
     Serial.println("cw");
   } else if (cmd == "ccw") {
-    pServoArm[1]->rotateBy(90.0);
-    //pServoArm[1]->rotate90CCW();
+    pServoArm[1]->rotate90CCW();
     Serial.println("ccw");
   } else if (cmd == "180") {
-    pServoArm[1]->rotateBy(180);
+    pServoArm[1]->rotate180();
+    Serial.println("180");
   }
   else if (cmd == "d") {
     pCube->d();

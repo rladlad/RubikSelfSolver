@@ -14,21 +14,24 @@ public:
 
 	bool isMoving() { return _isMoving; };	//is the servo moving?
 
-	void rotateBy(float degrees);
+					
+
+	//use rotateBy within the function
 	void rotate90CW();	//rotate the servo 90 degrees clockwise
 	void rotate90CCW();	//rotate the servo 90 degrees counter-clockwise
-	void rotate180CW();	//rotate the servo 180 degrees clockwise
-	void rotate180CCW();	//rotate the servo 180 degrees counter-clockwise
+	void rotate180();	//rotate the servo 180 degrees clockwise
+
+
 	void setRotationSpeedCW(uint32_t us){_rotationSpeedCW=us;};	//in micreosendos ; 1500 is the middle
 	void setRotationSpeedCCW(uint32_t us){_rotationSpeedCCW=us;}; //should be less the 1500 
 
-	
-
 	void setCurrentAngle(double angle) {_currentAngle = angle;};	//set the current angle of the servo	
-	void evaluateMove();	//this function should be called per frame to evalualate a moving servo if it has reached its target angle return false if its not moving ; otherwise true
+	void update();	//this function should be called per frame to update the servos position relative to its target
 
-	double getCurrentAngle(){return _currentAngle;};
-	double getTargetAngle(){return _targetAngle;};
+	float getCurrentAngle(){return _currentAngle;};
+	float getTargetAngle(){return _targetAngle;};
+	void 	setReferenceAngle(float angle);	//called during startup to set the REFERENCE/REST angle
+
 protected:
 	float angleDiff(float current, float target) {
   	  float diff = fmod((target - current + 540.0), 360.0) - 180.0;
@@ -54,6 +57,12 @@ protected:
     while (angle < 0.0)    angle += 360.0;
     return angle;
 	}
+
+	//void rotateBy(float degrees);		
+
+	int normalizeIndex(){
+			return (currentIndex % 4 + 4) % 4;
+	}
 		
 private:
 	bool _isAttached{ false };
@@ -66,19 +75,16 @@ private:
 	bool _isMoving{ false };	//is the servo moving?	
 
 	//angles
-	double _currentAngle{ 0.0 };	//current angle of the servo
-	double _targetAngle{ 0.0 };		//target angle of the servo
+	float _currentAngle{ 0.0 };	//current angle of the servo
+	float _targetAngle{ 0.0 };		//target angle of the servo
 	RotationDirection _direction{RotationDirection::None };	//direction of the rotation
 
 	const double _errorMargin{ 0.5};	//error margin for angle comparison
 
-	// PID coefficients 
-	float Kp = 2.0;     // proportional gain
-	float Ki = 0.0;     // integral gain
-	float Kd = 0.3;     // derivative gain
+	float _referenceAngle{0.0};
+	int currentIndex{0};					//0 to 3; which determines the correct angle
+	float _quadrantAngles[4];			//the target quarter angles set during initialization to minimize errors;
+	
 
-	float integral = 0.0;
-	float previousError = 0.0;
-	unsigned long lastUpdateTime = 0; // for delta time
 };
 
