@@ -17,13 +17,18 @@ const int STATE_TESTSOLVE = 1;
 #define SDAPin 21
 #define ResetPin 2
 
-#define PWM_O  15
-#define PWM_G  16
-#define PWM_R
-#define PWM_B
-#define PWM_W
-#define PWM_Y
+#define PWM_O  18
+#define PWM_G  5
+#define PWM_R  17
+#define PWM_B  16
+#define PWM_W  4
+#define PWM_Y  0
 
+#define LED1   23  
+#define LED2   15
+#define SW1    19
+#define SERVODRIVER 27
+#define BATT_ADC 34
 
 
 Rubik* pCube{ nullptr };      //the one and only pointer to the rubik
@@ -51,6 +56,7 @@ void printFace(int face);
 void printCube(Rubik* cube);
 void clearSerialMonitor();
 
+int tempcounter{0};
 
 void setup() {
 
@@ -70,12 +76,12 @@ void setup() {
   //initialize all servo arms
   servoOrange.setRotationSpeedCW(1700);
   servoOrange.setRotationSpeedCCW(1300);
-  servoOrange.attach();
   servoOrange.stop();
-
-  servoGreen.attach();
+  servoOrange.attach();
+  
   servoGreen.stop();
-
+  servoGreen.attach();
+  
   //store it in the array
   pServoArm[1]=&servoOrange;
   pServoArm[0]=&servoGreen;
@@ -99,6 +105,8 @@ void setup() {
 
 void loop() {
 
+  unsigned long looptimer = micros();
+
   if (stringComplete) {
     executeCommand(inputString);
     inputString = "";
@@ -121,9 +129,13 @@ void loop() {
     }
   }
 
-  //loop all servos and evaluate moves
+  //loop all servos and update moves
   for (int i=0;i<2;i++){
     pServoArm[i]->update();
+  }
+  
+  while (++tempcounter<10){
+    Serial.println(micros()-looptimer);
   }
 
 }
@@ -246,6 +258,15 @@ void executeCommand(String cmd) {
 
 
 //local functions
+void readAngles(){
+
+}
+
+void checkBattery(){
+
+}
+
+
 
 void clearSerialMonitor() {
   for (int i = 0; i < 50; i++) {

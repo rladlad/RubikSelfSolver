@@ -86,8 +86,10 @@ void ServoArm::update()
 
 	if (withinTolerance()){
 		stop();
+		Serial.print("Target : ");
 		Serial.print(_targetAngle);
 		Serial.print(" ");
+		Serial.print("Current : ");
 		Serial.println(_currentAngle);
 	}
 
