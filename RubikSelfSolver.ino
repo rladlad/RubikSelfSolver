@@ -258,14 +258,56 @@ void executeCommand(String cmd) {
 
 
 //local functions
+void initAllPins(){
+  pinMode(LED1,OUTPUT);
+  pinMode(LED2,OUTPUT);
+
+  pinMode(SERVODRIVER,OUTPUT);
+}
+
 void readAngles(){
+  uint8_t buffer[2];
+  for (int i=0;i<2;i++){
+    if (!mux.readFromDevice(i+2, DEV_ADDR, REG_ADDR, buffer, 2))
+    {
+        Serial.println("Reading failed");
+    }
+    else{
+        uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
+        value = value >> 2;                                  // remove the last 2 bits
+        double angle = (value/16384.0)*360.0;
+
+        pServoArm[i]->setCurrentAngle(angle);
+    }
+  }
+}
+
+float readBattery(){
+  //read the ADC1_CH6 (PIN 34) and return the equivalent value in volts
+  int = analogRead(34); //12 bits adc
 
 }
 
-void checkBattery(){
-
+void LED1On(bool ok=true){
+  if (ok)
+    digitalWrite(LED1,1);
+  else
+    digitalWrite(LED1,0);
 }
 
+void LED2On(bool ok = true){
+  if (ok)
+    digitalWrite(LED2,1);
+  else
+    digitalWrite(LED2,0);
+}
+
+void ServoOn(book ok = true){
+  if (ok)
+    digitalWrite(SERVODRIVER,1);
+  else
+    digitalWrite(SERVODRIVER,0);
+}
 
 
 void clearSerialMonitor() {
