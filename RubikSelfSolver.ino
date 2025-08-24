@@ -284,8 +284,10 @@ void readAngles(){
 
 float readBattery(){
   //read the ADC1_CH6 (PIN 34) and return the equivalent value in volts
-  int = analogRead(34); //12 bits adc
+  int value= analogRead(34); //12 bits adc
+  float vbatt = (147.0/47.0) * (value / 4095.0);
 
+  return vbatt;
 }
 
 void LED1On(bool ok=true){
@@ -302,7 +304,7 @@ void LED2On(bool ok = true){
     digitalWrite(LED2,0);
 }
 
-void ServoOn(book ok = true){
+void ServoOn(bool ok = true){
   if (ok)
     digitalWrite(SERVODRIVER,1);
   else
