@@ -2,11 +2,20 @@
 #include "PCA9548A.h"
 #include <arduino.h>
 #include "ServoArm.h"
+#include "BluetoothSerial.h"
 
 using namespace RubikBot;
 
+BluetoothSerial SerialBT;   //the serial BT acting as master
+
 const int STATE_IDLE = 0;
 const int STATE_TESTSOLVE = 1;
+const int STATE_CUBESOLVING = 2;
+const int STATE_CUBEINITIALIZING = 3;
+const int STATE_CUBECOLORREADING = 4;
+const int STATE_CUBESOLVED = 5;
+const int STATE_CUBEMEMORYSOLVING = 6;
+
 
 //other defines
 #define DEV_ADDR 0x06
@@ -31,113 +40,141 @@ const int STATE_TESTSOLVE = 1;
 #define BATT_ADC 34
 
 
+//forward declarations
+void initAllPins();
+void readAngles();
+float readBattery();
+void ServoOn(bool ok = true);
+void printFace(int face);
+void printCube(Rubik* cube);
+void clearSerialMonitor();
+
+
+
 Rubik* pCube{ nullptr };      //the one and only pointer to the rubik
 PCA9548A mux(SDAPin,SCLPin,ResetPin);
 
 String inputString = "";      // String to hold incoming data
+String inputStringBT = "";
 bool stringComplete = false;  // Whether the string is complete
+bool stringCompleteBT = false; //
+
 int state = STATE_IDLE;
 int solvecounter{0};
 
 //SERVO ARMS
 ServoArm servoOrange(PWM_O);
 ServoArm servoGreen(PWM_G);
+ServoArm servoRed(PWM_R);
+ServoArm servoBlue(PWM_B);
+ServoArm servoWhite(PWM_W);
+ServoArm servoYellow(PWM_Y);
 
-ServoArm* pServoArm[2]{};
+ServoArm* pServoArm[6]{};
 
 //for testing
 uint32_t currentseed{ 1 };
 bool isSolving{ false };
 
+//timers
+unsigned long battTimer=0;
 
-
-//forward declarations
-void printFace(int face);
-void printCube(Rubik* cube);
-void clearSerialMonitor();
-
-int tempcounter{0};
 
 void setup() {
-
+  //setup the serial communications
   Serial.begin(115200);
   delay(1000);
 
-  // put your setup code here, to run once:
-  pCube = new Rubik();
-  pCube->initialize();
-  state=STATE_TESTSOLVE;
-  inputString.reserve(50);
+  //set up the BT Serial to start accepting communications
+  SerialBT.begin("RubikOverlord"); // Bluetooth device name
+  Serial.println("Bluetooth device is ready to pair.");
 
-  //initialize the MUX
+  //turn of servo power
+  ServoOn(false);
+
+  //initialize the i2c MUX
   mux.begin();
   mux.set();
 
-  //initialize all servo arms
+
+  //initialize all servo arms; do not send PWM yet; 
   servoOrange.setRotationSpeedCW(1700);
   servoOrange.setRotationSpeedCCW(1300);
-  servoOrange.stop();
-  servoOrange.attach();
-  
-  servoGreen.stop();
-  servoGreen.attach();
+  servoGreen.setRotationSpeedCW(1700);
+  servoGreen.setRotationSpeedCCW(1300);
+  servoRed.setRotationSpeedCW(1700);
+  servoRed.setRotationSpeedCCW(1300);
+  servoBlue.setRotationSpeedCW(1700);
+  servoBlue.setRotationSpeedCCW(1300);
+  servoWhite.setRotationSpeedCW(1700);
+  servoWhite.setRotationSpeedCCW(1300);
+  servoYellow.setRotationSpeedCW(1700);
+  servoYellow.setRotationSpeedCCW(1300);
+
   
   //store it in the array
-  pServoArm[1]=&servoOrange;
-  pServoArm[0]=&servoGreen;
+  pServoArm[0]=&servoOrange;
+  pServoArm[1]=&servoGreen;
+  pServoArm[2]=&servoRed;
+  pServoArm[3]=&servoBlue;
+  pServoArm[4]=&servoWhite;
+  pServoArm[5]=&servoYellow;
 
-  //initialize all motors with reference angles
-  uint8_t buffer[2];
-  for (int i=0;i<2;i++){
-    if (!mux.readFromDevice(i+2, DEV_ADDR, REG_ADDR, buffer, 2))
-    {
-        Serial.println("Reading failed");
-    }
-    else{
-        uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
-        value = value >> 2;                                  // remove the last 2 bits
-        float angle = (value/16384.0)*360.0;
+  //setup the rubik cube
+  pCube = new Rubik();
+  pCube->initialize();
+  state=STATE_IDLE;
+  inputString.reserve(50);
+  inputStringBT.reserve(50);
 
-        pServoArm[i]->setReferenceAngle(angle);
-    }
-  }
+  //read the initial battery on startup so we wont be surprised
+  float value = readBattery();
+  String message = "batt:" + String(value, 1); // 1 decimal place
+  SerialBT.println(message);
+    
 }
 
 void loop() {
 
-  unsigned long looptimer = micros();
+  //call the serial event at each loop
+  serialEvent();
+  serialEventBT();
 
   if (stringComplete) {
     executeCommand(inputString);
     inputString = "";
     stringComplete = false;
   }
-  
-  //read ALL SENSORS
-  uint8_t buffer[2];
-  for (int i=0;i<2;i++){
-    if (!mux.readFromDevice(i+2, DEV_ADDR, REG_ADDR, buffer, 2))
-    {
-        Serial.println("Reading failed");
-    }
-    else{
-        uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
-        value = value >> 2;                                  // remove the last 2 bits
-        double angle = (value/16384.0)*360.0;
 
-        pServoArm[i]->setCurrentAngle(angle);
-    }
-  }
+  if (stringCompleteBT){
+    //execute the command from the BT
+    executeCommandBT(inputStringBT);
 
-  //loop all servos and update moves
-  for (int i=0;i<2;i++){
-    pServoArm[i]->update();
+    inputStringBT = "";
+    stringCompleteBT = false;
   }
   
-  while (++tempcounter<10){
-    Serial.println(micros()-looptimer);
+  //report battery voltage every five seconds
+  if (millis() >= battTimer + 5000){
+      float value = readBattery();
+
+      //report to the BT serial
+      String message = "batt:" + String(value, 2); // 2 decimal place
+      SerialBT.println(message);
+
+      battTimer = millis();
   }
 
+
+  //the STATE machine
+  switch (state){
+    case STATE_IDLE:
+      break;
+    case STATE_CUBESOLVING:
+      break;
+    default:
+      break;
+  }
 }
 
 void serialEvent() {
@@ -149,6 +186,24 @@ void serialEvent() {
       inputString += inChar;
     }
   }
+}
+
+void serialEventBT() {
+  while (SerialBT.available()) {
+    char inChar = (char)SerialBT.read();
+    if (inChar == '\n') {
+      stringCompleteBT = true;
+    } else {
+      inputStringBT += inChar;
+    }
+  }
+}
+
+
+void executeCommandBT(String cmd){
+  cmd.trim();
+  //write it to the serial monitor for now
+  Serial.println(cmd);
 }
 
 void executeCommand(String cmd) {
@@ -261,7 +316,6 @@ void executeCommand(String cmd) {
 void initAllPins(){
   pinMode(LED1,OUTPUT);
   pinMode(LED2,OUTPUT);
-
   pinMode(SERVODRIVER,OUTPUT);
 }
 
@@ -290,21 +344,8 @@ float readBattery(){
   return vbatt;
 }
 
-void LED1On(bool ok=true){
-  if (ok)
-    digitalWrite(LED1,1);
-  else
-    digitalWrite(LED1,0);
-}
 
-void LED2On(bool ok = true){
-  if (ok)
-    digitalWrite(LED2,1);
-  else
-    digitalWrite(LED2,0);
-}
-
-void ServoOn(bool ok = true){
+void ServoOn(bool ok){
   if (ok)
     digitalWrite(SERVODRIVER,1);
   else
