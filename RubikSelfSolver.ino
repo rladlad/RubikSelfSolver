@@ -2,11 +2,12 @@
 #include "PCA9548A.h"
 #include <arduino.h>
 #include "ServoArm.h"
-#include "BluetoothSerial.h"
+#include "BluetoothSerial.h"  //for default esp32; but the DEV BOARD might be too big
+#include <HardwareSerial.h> //use this for C6
 
 using namespace RubikBot;
 
-BluetoothSerial SerialBT;   //the serial BT acting as master
+HardwareSerial SerialBT(1);   //the serial BT acting as master
 
 const int STATE_IDLE = 0;
 const int STATE_TESTSOLVE = 1;
@@ -22,6 +23,9 @@ const int STATE_CUBEMEMORYSOLVING = 6;
 #define REG_ADDR 0x03   //the other data is 4
 
 //GPIO defines
+#define UART_TX 3
+#define UART_RX 2
+
 #define SCLPin 22
 #define SDAPin 21
 #define ResetPin 2
@@ -82,11 +86,11 @@ unsigned long battTimer=0;
 
 void setup() {
   //setup the serial communications
-  Serial.begin(115200);
+  Serial.begin(115200);     //we may not need this after testing (this is UART0 of ESP32)
   delay(1000);
 
   //set up the BT Serial to start accepting communications
-  SerialBT.begin("RubikOverlord"); // Bluetooth device name
+  SerialBT.begin(9600, SERIAL_8N1, UART_RX, UART_TX); //these pins must be tested
   Serial.println("Bluetooth device is ready to pair.");
 
   //turn of servo power
@@ -129,7 +133,7 @@ void setup() {
 
   //read the initial battery on startup so we wont be surprised
   float value = readBattery();
-  String message = "batt:" + String(value, 1); // 1 decimal place
+  String message = "batt:" + String(value, 2); // 1 decimal place
   SerialBT.println(message);
     
 }
