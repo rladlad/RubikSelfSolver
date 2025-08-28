@@ -4,10 +4,12 @@
 #include "ServoArm.h"
 #include "BluetoothSerial.h"  //for default esp32; but the DEV BOARD might be too big
 #include <HardwareSerial.h> //use this for C6
+#include "BLEBOT.h"
+#include "MyFunctions.h"
 
 using namespace RubikBot;
 
-HardwareSerial SerialBT(1);   //the serial BT acting as master
+HardwareSerial SerialBT(1);   //the serial BT acting as master(this is to be removed when BLE is tested to be working)
 
 const int STATE_IDLE = 0;
 const int STATE_TESTSOLVE = 1;
@@ -23,36 +25,22 @@ const int STATE_CUBEMEMORYSOLVING = 6;
 #define REG_ADDR 0x03   //the other data is 4
 
 //GPIO defines
-#define UART_TX 3
+#define UART_TX 1
 #define UART_RX 2
 
-#define SCLPin 22
+#define SCLPin 20
 #define SDAPin 21
-#define ResetPin 2
+#define ResetPin 7
 
-#define PWM_O  18
-#define PWM_G  5
-#define PWM_R  17
-#define PWM_B  16
-#define PWM_W  4
-#define PWM_Y  0
+#define PWM_O  12
+#define PWM_G  13
+#define PWM_R  14
+#define PWM_B  15
+#define PWM_W  18
+#define PWM_Y  19
 
-#define LED1   23  
-#define LED2   15
-#define SW1    19
-#define SERVODRIVER 27
-#define BATT_ADC 34
-
-
-//forward declarations
-void initAllPins();
-void readAngles();
-float readBattery();
-void ServoOn(bool ok = true);
-void printFace(int face);
-void printCube(Rubik* cube);
-void clearSerialMonitor();
-
+#define SERVODRIVER 6
+#define BATT_ADC 0
 
 
 Rubik* pCube{ nullptr };      //the one and only pointer to the rubik
@@ -87,11 +75,18 @@ unsigned long battTimer=0;
 void setup() {
   //setup the serial communications
   Serial.begin(115200);     //we may not need this after testing (this is UART0 of ESP32)
-  delay(1000);
+  delay(500);
 
   //set up the BT Serial to start accepting communications
-  SerialBT.begin(9600, SERIAL_8N1, UART_RX, UART_TX); //these pins must be tested
+  //SerialBT.begin(9600, SERIAL_8N1, UART_RX, UART_TX); //these pins must be tested
+  initBleBot();     //initialize the BLUETOOTH LE
   Serial.println("Bluetooth device is ready to pair.");
+
+  //initialize all pins
+  initAllPins();
+
+  //turn on ResetPin
+  digitalWrite(ResetPin,HIGH);
 
   //turn of servo power
   ServoOn(false);
@@ -133,7 +128,7 @@ void setup() {
 
   //read the initial battery on startup so we wont be surprised
   float value = readBattery();
-  String message = "batt:" + String(value, 2); // 1 decimal place
+  String message = "batt:" + String(value, 2); // 2 decimal place
   SerialBT.println(message);
     
 }
@@ -318,8 +313,8 @@ void executeCommand(String cmd) {
 
 //local functions
 void initAllPins(){
-  pinMode(LED1,OUTPUT);
-  pinMode(LED2,OUTPUT);
+
+  pinMode(ResetPin,OUTPUT);
   pinMode(SERVODRIVER,OUTPUT);
 }
 
@@ -341,8 +336,8 @@ void readAngles(){
 }
 
 float readBattery(){
-  //read the ADC1_CH6 (PIN 34) and return the equivalent value in volts
-  int value= analogRead(34); //12 bits adc
+  //read the BATYT_ADC pin and return the equivalent value in volts
+  int value= analogRead(BATT_ADC); //12 bits adc
   float vbatt = (147.0/47.0) * (value / 4095.0);
 
   return vbatt;
