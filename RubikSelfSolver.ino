@@ -3,13 +3,13 @@
 #include <arduino.h>
 #include "ServoArm.h"
 #include "BluetoothSerial.h"  //for default esp32; but the DEV BOARD might be too big
-#include <HardwareSerial.h> //use this for C6
+//#include <HardwareSerial.h> //use this for C6
 #include "BLEBOT.h"
 #include "MyFunctions.h"
 
 using namespace RubikBot;
 
-HardwareSerial SerialBT(1);   //the serial BT acting as master(this is to be removed when BLE is tested to be working)
+//HardwareSerial SerialBT(1);   //the serial BT acting as master(this is to be removed when BLE is tested to be working)
 
 const int STATE_IDLE = 0;
 const int STATE_TESTSOLVE = 1;
@@ -76,11 +76,11 @@ void setup() {
   //setup the serial communications
   Serial.begin(115200);     //we may not need this after testing (this is UART0 of ESP32)
   delay(500);
+  Serial.println("Serial Ready");
 
   //set up the BT Serial to start accepting communications
   //SerialBT.begin(9600, SERIAL_8N1, UART_RX, UART_TX); //these pins must be tested
   initBleBot();     //initialize the BLUETOOTH LE
-  Serial.println("Bluetooth device is ready to pair.");
 
   //initialize all pins
   initAllPins();
@@ -129,37 +129,20 @@ void setup() {
   //read the initial battery on startup so we wont be surprised
   float value = readBattery();
   String message = "batt:" + String(value, 2); // 2 decimal place
-  SerialBT.println(message);
+  bleSendMessage(message);
     
 }
 
 void loop() {
 
-  //call the serial event at each loop
-  serialEvent();
-  serialEventBT();
-
-  if (stringComplete) {
-    executeCommand(inputString);
-    inputString = "";
-    stringComplete = false;
-  }
-
-  if (stringCompleteBT){
-    //execute the command from the BT
-    executeCommandBT(inputStringBT);
-
-    inputStringBT = "";
-    stringCompleteBT = false;
-  }
-  
+    
   //report battery voltage every five seconds
   if (millis() >= battTimer + 5000){
       float value = readBattery();
 
       //report to the BT serial
       String message = "batt:" + String(value, 2); // 2 decimal place
-      SerialBT.println(message);
+      bleSendMessage(message);
 
       battTimer = millis();
   }
@@ -188,14 +171,14 @@ void serialEvent() {
 }
 
 void serialEventBT() {
-  while (SerialBT.available()) {
-    char inChar = (char)SerialBT.read();
-    if (inChar == '\n') {
-      stringCompleteBT = true;
-    } else {
-      inputStringBT += inChar;
-    }
-  }
+  // while (SerialBT.available()) {
+  //   char inChar = (char)SerialBT.read();
+  //   if (inChar == '\n') {
+  //     stringCompleteBT = true;
+  //   } else {
+  //     inputStringBT += inChar;
+  //   }
+  // }
 }
 
 

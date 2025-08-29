@@ -30,7 +30,8 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         Serial.print("Received command: ");
         Serial.println(rxValue);
 
-        executeCommand(rxValue);  // pass to your handler
+        //executeCommand(rxValue);  // pass to your handler
+        bleSendMessage("FROM BOT:" + rxValue);
     }
   }
 };
