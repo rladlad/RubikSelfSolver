@@ -28,7 +28,7 @@ const int STATE_SOLVED = 10;
 #define REG_ADDR 0x03   //the other data is 4
 
 //GPIO defines
-#define UART_TX 0       //this is RX pin in ESP32
+#define UART_TX 2       //this is RX pin in ESP32
 #define UART_RX 1       //this is TX pin in ESP32
 
 #define SCLPin 20
