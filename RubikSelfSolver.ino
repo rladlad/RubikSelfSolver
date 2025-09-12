@@ -32,10 +32,10 @@ const int STATE_SOLVED = 10;
 #define UART_RX 1       //this is TX pin in ESP32
 
 #define SCLPin 20
-#define SDAPin 21
+#define SDAPin 9        //originally 21
 #define ResetPin 7
 
-#define PWM_O  12
+#define PWM_O  8        //originally 12
 #define PWM_G  13
 #define PWM_R  14
 #define PWM_B  15
