@@ -2,22 +2,25 @@
 #include "PCA9548A.h"
 #include <arduino.h>
 #include "ServoArm.h"
-#include "BluetoothSerial.h"  //for default esp32; but the DEV BOARD might be too big
-//#include <HardwareSerial.h> //use this for C6
+//#include "BluetoothSerial.h"  //for default esp32; but the DEV BOARD might be too big
 #include "BLEBOT.h"
 #include "MyFunctions.h"
-
+#include "HardwareSerial.h"
+#include "CommandParser.h"
 using namespace RubikBot;
 
-//HardwareSerial SerialBT(1);   //the serial BT acting as master(this is to be removed when BLE is tested to be working)
 
 const int STATE_IDLE = 0;
-const int STATE_TESTSOLVE = 1;
-const int STATE_CUBESOLVING = 2;
-const int STATE_CUBEINITIALIZING = 3;
-const int STATE_CUBECOLORREADING = 4;
-const int STATE_CUBESOLVED = 5;
-const int STATE_CUBEMEMORYSOLVING = 6;
+const int STATE_READY = 1;
+const int STATE_MOVING = 2;
+const int STATE_SCRAMBLING = 3;
+const int STATE_PREPARESOLVE = 4;
+const int STATE_WAITINGFORCOLORS=5;
+const int STATE_CHECKINGCUBECOLORS = 6;
+const int STATE_READYTOSOLVE = 7;
+const int STATE_PREPSOLUTION = 8;
+const int STATE_SOLVING = 9;
+const int STATE_SOLVED = 10;
 
 
 //other defines
@@ -25,8 +28,8 @@ const int STATE_CUBEMEMORYSOLVING = 6;
 #define REG_ADDR 0x03   //the other data is 4
 
 //GPIO defines
-#define UART_TX 1
-#define UART_RX 2
+#define UART_TX 0       //this is RX pin in ESP32
+#define UART_RX 1       //this is TX pin in ESP32
 
 #define SCLPin 20
 #define SDAPin 21
@@ -43,13 +46,20 @@ const int STATE_CUBEMEMORYSOLVING = 6;
 #define BATT_ADC 0
 
 
+HardwareSerial ss(1);
+
 Rubik* pCube{ nullptr };      //the one and only pointer to the rubik
 PCA9548A mux(SDAPin,SCLPin,ResetPin);
 
 String inputString = "";      // String to hold incoming data
-String inputStringBT = "";
+//String inputStringBT = "";
 bool stringComplete = false;  // Whether the string is complete
-bool stringCompleteBT = false; //
+//bool stringCompleteBT = false; //
+
+const int MAXBUFFSIZE = 100;
+char btInputBuffer[MAXBUFFSIZE];
+int btIndex = 0;
+bool btInputReady = false;
 
 int state = STATE_IDLE;
 int solvecounter{0};
@@ -71,6 +81,12 @@ bool isSolving{ false };
 //timers
 unsigned long battTimer=0;
 
+//GLOBAL state variables
+bool isMoveStarted = false;
+bool isScramblingStarted = false;
+
+CommandParser parser;
+
 
 void setup() {
   //setup the serial communications
@@ -79,7 +95,8 @@ void setup() {
   Serial.println("Serial Ready");
 
   //set up the BT Serial to start accepting communications
-  //SerialBT.begin(9600, SERIAL_8N1, UART_RX, UART_TX); //these pins must be tested
+  Serial1.begin(115200, SERIAL_8N1, UART_RX, UART_TX); //these pins must be tested
+
   initBleBot();     //initialize the BLUETOOTH LE
 
   //initialize all pins
@@ -124,7 +141,7 @@ void setup() {
   pCube->initialize();
   state=STATE_IDLE;
   inputString.reserve(50);
-  inputStringBT.reserve(50);
+  //inputStringBT.reserve(50);
 
   //read the initial battery on startup so we wont be surprised
   float value = readBattery();
@@ -142,21 +159,148 @@ void loop() {
 
       //report to the BT serial
       String message = "batt:" + String(value, 2); // 2 decimal place
+      message.concat("\n");
       bleSendMessage(message);
 
       battTimer = millis();
   }
 
+  //serialEvent();    //the main serial UART
+  checkBTSerial();   //read the Serial for BT comms
 
-  //the STATE machine
+  bool cmdHandled = true;   //all commands were handled
+
+  //parse the input command
+  if (btInputReady) {
+    btInputReady = false;
+    bool result = parser.parse(btInputBuffer);
+    
+    if (result){
+      cmdHandled=false;
+    }
+
+    //execute the command here
+    //for now just reflect in the serial
+    Serial.print("Command >> ");
+    Serial.println(parser.getCommand());
+
+    if (parser.getParamCount()>0){
+      Serial.println("Params");
+
+      for (int i=0; i< parser.getParamCount();i++){
+          Serial.print("Param" + i );
+          Serial.print(" : ");
+          Serial.println(parser.getParam(i));
+      }
+    }
+  }
+
+  
+
+  //the STATE machine; process only the valid commands in each state
   switch (state){
     case STATE_IDLE:
+      if (!cmdHandled){
+        if (parser.getCommand() == "POWERON"){
+          //power the motor
+          ServoOn(true);
+
+          //set reference angles on all servos
+
+          Serial.println("Receive PowerOn command");
+          //send back the success message
+          Serial1.println("Overlord is Powered On");
+
+          cmdHandled = true;
+          state = STATE_READY;
+        }
+      }
       break;
-    case STATE_CUBESOLVING:
+    case STATE_READY:
+      if (!cmdHandled){
+        if (parser.getCommand() == "MOVE"){
+
+          cmdHandled=true;
+          state= isMoveStarted=false;
+          state= STATE_MOVING;
+        }
+        else if(parser.getCommand()=="SCRAMBLE"){
+
+          state = STATE_SCRAMBLING;
+          isScramblingStarted=false;
+          cmdHandled=true;
+        }
+        else if (parser.getCommand() == "SOLVECUBE"){
+          state = STATE_PREPARESOLVE;
+          cmdHandled=true;
+        }
+        else{
+          cmdHandled = false;
+        }
+      }
+      break;
+    case STATE_MOVING:
+      //no command should be processed here; instead just initiate the start and ending of a MOVE
+      if (!isMoveStarted){
+        //do the move
+
+        isMoveStarted = true;
+      }
+      else{
+        //move already started ; check if all servos are not moving
+        bool isMoving=false;
+        for (int i=0; i<6 ; i++){
+          if (pServoArm[i]->isMoving()){
+            isMoving=true;
+            break;
+          }
+        }
+
+        if (!isMoving){
+          //we done moving
+          Serial1.println("Move done");
+          state = STATE_READY;
+        }
+      }
+      break;
+    case STATE_SCRAMBLING:
+      if (!isScramblingStarted){
+
+        isScramblingStarted = true;
+      }
+      else{
+        //scrambling is already started; just exahust all moves
+
+      }
+      break;
+    case STATE_PREPARESOLVE:
+      //get the colors from the PC
+      Serial1.println("GETCOLORS");
+      state=STATE_WAITINGFORCOLORS;
+      break;
+    case STATE_WAITINGFORCOLORS:
+      break;
+    case STATE_CHECKINGCUBECOLORS:
+      break;
+    case STATE_READYTOSOLVE:
+      break;
+    case STATE_PREPSOLUTION:
+      break;
+    case STATE_SOLVING:
+      break;
+    case STATE_SOLVED:
       break;
     default:
       break;
   }
+
+  if (cmdHandled){
+    
+  }
+  else{
+    //check for unhandled commands; like abort; or if it is an unknown command
+  }
+
 }
 
 void serialEvent() {
@@ -170,15 +314,22 @@ void serialEvent() {
   }
 }
 
-void serialEventBT() {
-  // while (SerialBT.available()) {
-  //   char inChar = (char)SerialBT.read();
-  //   if (inChar == '\n') {
-  //     stringCompleteBT = true;
-  //   } else {
-  //     inputStringBT += inChar;
-  //   }
-  // }
+
+void checkBTSerial() {
+  while (Serial1.available()) {
+    char c = Serial1.read();
+
+    if (c == '\n') {
+      btInputBuffer[btIndex] = '\0';
+      btInputReady = true;
+      btIndex = 0;
+    } else if (btIndex < MAXBUFFSIZE - 1) {
+      btInputBuffer[btIndex++] = c;
+    } else {
+      Serial.println("BT input too long!");
+      btIndex = 0;
+    }
+  }
 }
 
 
@@ -351,7 +502,7 @@ void printFace(int face) {
         Serial.print(arr[i][j]);
         Serial.print(' ');
       }
-      Serial.println();
+      Serial0.println();
     }
   }
 }
