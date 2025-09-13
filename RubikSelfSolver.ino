@@ -36,7 +36,7 @@ const int STATE_SOLVED = 10;
 #define ResetPin 7
 
 #define PWM_O  8        //originally 12
-#define PWM_G  13
+#define PWM_G  3        //originally 13 but it is USBD+ com
 #define PWM_R  14
 #define PWM_B  15
 #define PWM_W  18
