@@ -51,7 +51,13 @@ int state = STATE_IDLE;
 bool isMoveStarted = false;
 bool isScramblingStarted = false;
 bool isPoweredUp = false;           //true if the motors are powered
+bool isWaitingTimeSet = false;
+long maxWaitTime =0;
+bool isSolvingStarted=false;
 
+int numberOfMoves =0;
+int moveIndex = 0;
+int currentMove = 0;
 
 //variables and defines for scrambling
 const int MAX_SCRAMBLE_MOVES = 30;
@@ -147,49 +153,50 @@ void loop() {
       //power down if not yet done
       if (isPoweredUp){
           overlord.powerDownMotors();
-          Serial1.println("All motors are powered down");
+          Serial.println("All motors are powered down");
           isPoweredUp=false;
       }
 
 
       if (!cmdHandled){ 
-        if (parser.getCommand() == "POWERON"){
+        if (strcmp(parser.getCommand(),"POWERON")==0){
           state = STATE_READY;
           
           isPoweredUp=true;
           //send the state to the HC06 for logging
-          Serial1.println("Motors are ON.");
-          Serial1.println("Switching to READY");
+          Serial.println("Motors are ON.");
+          Serial.println("Switching to READY");
         }
       }
       break;
     case STATE_READY:
       if (!cmdHandled){
-        if (parser.getCommand() == "MOVE"){
+        if (strcmp(parser.getCommand(),"MOVE")==0){
 
           cmdHandled=true;
           isMoveStarted=false;
           state= STATE_MOVING;
         }
-        else if(parser.getCommand()=="SCRAMBLE"){
+        else if(strcmp(parser.getCommand(),"SCRAMBLE")==0){
           //format: SCRAMBLE 10 ; to scramble to 10 MOVES
           if (prepScramble(20))
           {
             //at this point,scrambleMoves is filled up to scrambleCounter
+            Serial.println("Switching to SCRAMBLING");
             state = STATE_SCRAMBLING;
             isScramblingStarted=false;
             cmdHandled=true;
           }
           else{
             //send error to HC06
-            Serial1.println("Error in SCRAMBLING occurred.");
-            Serial1.println("Switching to IDLE");
+            Serial.println("Error in SCRAMBLING occurred.");
+            Serial.println("Switching to IDLE");
           }
         }
-        else if (parser.getCommand() == "SOLVECUBE"){
+        else if (strcmp(parser.getCommand(),"SOLVECUBE")==0){
           
-          Serial1.println("SOLVE command recieved.");
-          Serial1.println("Switching to PREPARESOLVE");
+          Serial.println("SOLVE command recieved.");
+          Serial.println("Switching to PREPARESOLVE");
           state = STATE_PREPARESOLVE;
           cmdHandled=true;
         }
@@ -217,6 +224,10 @@ void loop() {
         currentmove = scrambleMoves[scrambleindex++];
  
         decodeMove(currentmove,activemotorid,steps);
+
+        //these lines are for debugging only
+        printMove();
+
         overlord.moveRelative(activemotorid, steps);
       }
       else{
@@ -225,12 +236,16 @@ void loop() {
           if (scrambleindex >= scrambleCounter)
           {
             state = STATE_READY;
-            Serial1.println("Scramble complete. Transitioning to READY.");
+            Serial.println("Scramble complete. Transitioning to READY.");
           }
           else{ //there are still moves left
             currentmove = scrambleMoves[scrambleindex++]; //get the next move
 
             decodeMove(currentmove,activemotorid,steps);
+
+            //these lines are for debugging only
+            printMove();
+
             overlord.moveRelative(activemotorid, steps);
           }
         }
@@ -242,20 +257,20 @@ void loop() {
       break;
     case STATE_PREPARESOLVE:
       //get the colors from the PC ; send a command to the pc
-      Serial1.println("COMMAND GETCOLORS");
-      Serial1.println("Switching to WAITINGFORCOLORS");
+      Serial.println("COMMAND GETCOLORS");
+      Serial.println("Switching to WAITINGFORCOLORS");
       state=STATE_WAITINGFORCOLORS;
-      waitingTimeSet=false;
+      isWaitingTimeSet=false;
       break;
     case STATE_WAITINGFORCOLORS:
-      if (!waitingTimeSet){
+      if (!isWaitingTimeSet){
         maxWaitTime = millis()+60000; //one minute wait time
-        waitingTimeSet=true;
+        isWaitingTimeSet=true;
       }
       else{
         if (millis()>maxWaitTime){
-          Serial1.println("Colors did not arrive on time.");
-          Serial1.println("Switching to IDLE");
+          Serial.println("Colors did not arrive on time.");
+          Serial.println("Switching to IDLE");
 
           state = STATE_IDLE;
           break;
@@ -264,11 +279,15 @@ void loop() {
         //check if there are incoming colors command
         if (!cmdHandled){
           //get the command and parameter and process it; the valid command is COLORS
-
-          //if colors are recieved, switching to CHECKING CUBE COLORS
-          Serial1.println("Colors are recieved.");
-          Serial1.printn("Switching to CHECKINGCOLORS");
-          state = STATE_CHECKINGCUBECOLORS;
+          if(strcmp(parser.getCommand(),"COLORS")==0){
+         
+            //if colors are recieved, switching to CHECKING CUBE COLORS
+            Serial.println("Colors are recieved.");
+            Serial.println("Switching to CHECKINGCOLORS");
+            state = STATE_CHECKINGCUBECOLORS;
+            
+            cmdHandled=true;
+          }
         }
       }
       break;
@@ -276,58 +295,111 @@ void loop() {
       if (!checkCubeColors()){
         //the checkCubeColors will be passed in the recieved colors to the cube. It will then check if it can solve the cube using the colors
         //if true; then it will proceed ; else it will raise and error
-        Serial1.println("There is an error evaluating the recieved colors.");
-        Serial1.println("Switching to PREPARESOLVE");
+        Serial.println("There is an error evaluating the recieved colors.");
+        Serial.println("Switching to PREPARESOLVE");
         state = STATE_PREPARESOLVE;
       }
       else{
         //the cube colors are OK; and the cube should have a SOLUTION;
-        //SWITCH to READY TO SOLVE to await the GOAHEAD from 
-        Serial1.println("Click on SOLVE to go ahead.");
-        Serial1.println("Switching to READYTOSOLVE");
-        state = STATE_READYTOSOLVE;
-        waitingTimeSet = false;
+        //TEMPORARY 
+        pCube->initialize();  //init to solved
+        pCube->shuffle(200);
+        pCube->solve();   //the moves will be filled in return
+
+        if (pCube->isSolved()){
+          //optimize moves
+          pCube->optimizeMoves();
+
+          //SWITCH to READY TO SOLVE to await the GOAHEAD from 
+          Serial.println("Click on SOLVE to go ahead.");
+          Serial.println("Switching to READYTOSOLVE");
+          state = STATE_READYTOSOLVE;
+          isWaitingTimeSet = false;
+        }
+        else{
+          //unable to solve the cube even if the colors are OK. Strange
+          Serial.println("UNABLE TO SOLVE CUBE");
+          Serial.println("Switching to IDLE");  
+        }
       }
       break;
     case STATE_READYTOSOLVE:
       //wait here until SOLVE is clicked; or timeout of 1 minute
-      if (!waitingTimeSet){
+      if (!isWaitingTimeSet){
         maxWaitTime = millis() + 60000; 
-        waitingTimeSet = true;
+        isWaitingTimeSet = true;
       }
       else{
-        if (millis() maxWaitTime){
-          Serial1.println("SOLVE button is not clicked on time.");
-          Serial1.println("Switching to IDLE");
+        if (millis() > maxWaitTime){
+          Serial.println("SOLVE button is not clicked on time.");
+          Serial.println("Switching to IDLE");
           state = STATE_IDLE;
           break;
         }
 
         //check if there is a COMMAND To GOAHEAD and solve
         if (!cmdHandled){
-          //get the command and parameter and process it; the valid command is COLORS
+          //get the command and parameter and process it;
+          if(strcmp(parser.getCommand(),"GOAHEAD")==0){
+         
+            //if colors are recieved, switching to CHECKING CUBE COLORS
+            Serial.println("GOAHEAD recieved.");
+            Serial.println("Switching to SOLVING");
 
-          //if colors are recieved, switching to CHECKING CUBE COLORS
-          Serial1.println("GOAHEAD recieved.");
-          Serial1.printn("Switching to SOLVING");
+            //the cube should have the solution already; so store it somewhere in an array to be exhausted
 
-          //the cube should have the solution already; so store it somewhere in an array to be exhausted
-
-          isSolvingStarted = false;
-          state = STATE_SOLVING;
+            isSolvingStarted = false;
+            state = STATE_SOLVING;
+            cmdHandled=true;
+          }
         }
 
       }
       break;
     case STATE_SOLVING:
       if (!isSolvingStarted){
+        //the cube has an array of moves to solve it;
+        //get and execute each move
+        numberOfMoves= pCube->getNumberOfMoves();
+        moveIndex = 0;
+        if (numberOfMoves==0){
+          //already solved
+          Serial.println("Cube is already solved.");
+          state= STATE_SOLVED;
+        }
+        else{
+          currentMove = pCube->getMoveAt(moveIndex++);
+          convertMove(currentMove,activemotorid,steps);
+          printMove();
 
+          overlord.moveRelative(activemotorid, steps);
+          isSolvingStarted=true;
+        }
       }
       else{
-        
+        if (!overlord.isBusy(activemotorid)){
+          if (moveIndex >= numberOfMoves)
+          {
+            state=STATE_SOLVED;
+            Serial.println("THE CUBE IS SOLVED");
+          }
+          else{ //there are still moves left
+            currentMove = pCube->getMoveAt(moveIndex++);
+            convertMove(currentMove,activemotorid,steps);
+            printMove();
+            overlord.moveRelative(activemotorid, steps);
+          }
+        }
+        else
+        {
+            overlord.update();
+        }
+       
       }
       break;
     case STATE_SOLVED:
+      Serial.println("Switching to IDLE");
+      state=STATE_IDLE;
       break;
     default:
       break;
@@ -342,14 +414,18 @@ void loop() {
 
 }
 
+bool checkCubeColors(){
+  return true;
+}
+
 void serialEvent() {
 
 }
 
-
+//replace serial with serial1 later
 void checkBTSerial() {
-  while (Serial1.available()) {
-    char c = Serial1.read();
+  while (Serial.available()) {
+    char c = Serial.read();
 
     if (c == '\r') continue;  // Skip carriage return
 
@@ -367,15 +443,6 @@ void checkBTSerial() {
 }
 
 
-void executeCommandBT(String cmd){
-  cmd.trim();
-  //write it to the serial monitor for now
-  Serial.println(cmd);
-}
-
-void executeCommand(String cmd) {
- 
-}
 
 float readBattery(){
   //read the BATYT_ADC pin and return the equivalent value in volts
@@ -413,9 +480,31 @@ bool prepScramble(uint numMoves) {
   return true;
 }
 
+//used in scrambling
 void decodeMove(int move, int& motor, int& steps) {
   int type = move % 3;
   motor = move / 3;
   steps = (type == 0) ? 512 : (type == 1 ? -512 : 1024);
 }
 
+  
+//convert the ORIGINAL RUBIK MOVE to TCAMOVES
+//see Global MOVES
+void convertMove(int move, int& motor, int& steps) {
+  if (move <12){
+    int type = move % 2;
+    motor = move / 2;
+    steps = (type == 0) ? 512 : -512;
+  }
+  else{
+    motor=move-12;
+    steps=1024;
+  }
+}
+
+void printMove(){
+  Serial.print("MotorID :");
+  Serial.print(activemotorid);
+  Serial.print(" Steps :");
+  Serial.println(steps);
+}
