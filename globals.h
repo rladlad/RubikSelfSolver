@@ -24,7 +24,7 @@ enum class  Moves
     Rp=5,
     B=6,
     Bp=7,
-	U=8,
+		U=8,
     Up=9,
     D=10,
     Dp=11,

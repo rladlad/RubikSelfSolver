@@ -1,14 +1,11 @@
 #include "Cube.h"
-#include "PCA9548A.h"
 #include <arduino.h>
-#include "ServoArm.h"
-//#include "BluetoothSerial.h"  //for default esp32; but the DEV BOARD might be too big
-#include "BLEBOT.h"
 #include "MyFunctions.h"
-#include "HardwareSerial.h"
+#include "OverlordTCA.h"
 #include "CommandParser.h"
-using namespace RubikBot;
+#include <wire.h>
 
+using namespace RubikBot;
 
 const int STATE_IDLE = 0;
 const int STATE_READY = 1;
@@ -23,136 +20,94 @@ const int STATE_SOLVING = 9;
 const int STATE_SOLVED = 10;
 
 
-//other defines
-#define DEV_ADDR 0x06
-#define REG_ADDR 0x03   //the other data is 4
 
 //GPIO defines
 #define UART_TX 2       //this is RX pin in ESP32
 #define UART_RX 1       //this is TX pin in ESP32
 
-#define SCLPin 20
-#define SDAPin 9        //originally 21
-#define ResetPin 7
+#define SCLPin 14 
+#define SDAPin 15 
+#define nResetPin 18
 
-#define PWM_O  8        //originally 12
-#define PWM_G  3        //originally 13 but it is USBD+ com
-#define PWM_R  14
-#define PWM_B  15
-#define PWM_W  18
-#define PWM_Y  19
-
-#define SERVODRIVER 6
 #define BATT_ADC 0
 
-
-HardwareSerial ss(1);
-
 Rubik* pCube{ nullptr };      //the one and only pointer to the rubik
-PCA9548A mux(SDAPin,SCLPin,ResetPin);
 
-String inputString = "";      // String to hold incoming data
-//String inputStringBT = "";
-bool stringComplete = false;  // Whether the string is complete
-//bool stringCompleteBT = false; //
+//the TCA driver and the overlord controller declaration
+TCA6424A tca;
+OverlordTCA overlord(tca);
+CommandParser parser;
 
-const int MAXBUFFSIZE = 100;
+int activeid=0;
+int steps=1024;
+
+const int MAXBUFFSIZE = 120;
 char btInputBuffer[MAXBUFFSIZE];
 int btIndex = 0;
 bool btInputReady = false;
 
+//GLOBAL state variables
 int state = STATE_IDLE;
-int solvecounter{0};
+bool isMoveStarted = false;
+bool isScramblingStarted = false;
 
-//SERVO ARMS
-ServoArm servoOrange(PWM_O);
-ServoArm servoGreen(PWM_G);
-ServoArm servoRed(PWM_R);
-ServoArm servoBlue(PWM_B);
-ServoArm servoWhite(PWM_W);
-ServoArm servoYellow(PWM_Y);
 
-ServoArm* pServoArm[6]{};
+//variables and defines for scrambling
+const int MAX_SCRAMBLE_MOVES = 30;
+const int NUM_MOVE_TYPES = 18;
 
-//for testing
-uint32_t currentseed{ 1 };
-bool isSolving{ false };
+int scrambleMoves[MAX_SCRAMBLE_MOVES];
+int scrambleCounter = 0;
+int currentmove;
+int activemotorid;
+int scrambleindex;
+
+
 
 //timers
 unsigned long battTimer=0;
 
-//GLOBAL state variables
-bool isMoveStarted = false;
-bool isScramblingStarted = false;
-
-CommandParser parser;
 
 
 void setup() {
   //setup the serial communications
-  Serial.begin(115200);     //we may not need this after testing (this is UART0 of ESP32)
+  Serial.begin(115200);  //for the serial monitot
+  Serial1.begin(115200, SERIAL_8N1, UART_RX, UART_TX);  //for the HC06 serial
   delay(500);
   Serial.println("Serial Ready");
 
-  //set up the BT Serial to start accepting communications
-  Serial1.begin(115200, SERIAL_8N1, UART_RX, UART_TX); //these pins must be tested
+  //initialize i2c controller here to read/write to the TCA
+  Wire.begin(SDAPin,SCLPin); //join as master
 
-  initBleBot();     //initialize the BLUETOOTH LE
+  //set the nResetPin Hight
+  pinMode(nResetPin, OUTPUT);
+  digitalWrite(nResetPin,HIGH);
 
-  //initialize all pins
-  initAllPins();
-
-  //turn on ResetPin
-  digitalWrite(ResetPin,HIGH);
-
-  //turn of servo power
-  ServoOn(false);
-
-  //initialize the i2c MUX
-  mux.begin();
-  mux.set();
-
-
-  //initialize all servo arms; do not send PWM yet; 
-  servoOrange.setRotationSpeedCW(1700);
-  servoOrange.setRotationSpeedCCW(1300);
-  servoGreen.setRotationSpeedCW(1700);
-  servoGreen.setRotationSpeedCCW(1300);
-  servoRed.setRotationSpeedCW(1700);
-  servoRed.setRotationSpeedCCW(1300);
-  servoBlue.setRotationSpeedCW(1700);
-  servoBlue.setRotationSpeedCCW(1300);
-  servoWhite.setRotationSpeedCW(1700);
-  servoWhite.setRotationSpeedCCW(1300);
-  servoYellow.setRotationSpeedCW(1700);
-  servoYellow.setRotationSpeedCCW(1300);
-
+  delay(2000);
   
-  //store it in the array
-  pServoArm[0]=&servoOrange;
-  pServoArm[1]=&servoGreen;
-  pServoArm[2]=&servoRed;
-  pServoArm[3]=&servoBlue;
-  pServoArm[4]=&servoWhite;
-  pServoArm[5]=&servoYellow;
-
-  //setup the rubik cube
+  //setup the rubik cube; (the logical cube)
   pCube = new Rubik();
-  pCube->initialize();
-  state=STATE_IDLE;
-  inputString.reserve(50);
-  //inputStringBT.reserve(50);
+  pCube->initialize();    //reset to initial color
+  state=STATE_IDLE;       //set initial state of the FSM
+
+  //init TCA and the OverlordController (for the movement)
+  tca.begin();
+  overlord.setStepsPerRevolution(2048.0f);
+  for (int i = 0; i < 6; i++) {
+    overlord.registerMotor(i, i * 4);
+    overlord.setMaxSpeed(i, 20.0f);
+  }
 
   //read the initial battery on startup so we wont be surprised
   float value = readBattery();
   String message = "batt:" + String(value, 2); // 2 decimal place
-  bleSendMessage(message);
+  message.concat("\n");
+  Serial1.println(message);
     
 }
 
 void loop() {
 
-    
   //report battery voltage every five seconds
   if (millis() >= battTimer + 5000){
       float value = readBattery();
@@ -160,13 +115,13 @@ void loop() {
       //report to the BT serial
       String message = "batt:" + String(value, 2); // 2 decimal place
       message.concat("\n");
-      bleSendMessage(message);
+      Serial1.println(message);
 
       battTimer = millis();
   }
 
-  //serialEvent();    //the main serial UART
-  checkBTSerial();   //read the Serial for BT comms
+  //read the Serial from HC06
+  checkBTSerial();  
 
   bool cmdHandled = true;   //all commands were handled
 
@@ -179,40 +134,21 @@ void loop() {
       cmdHandled=false;
     }
 
-    //execute the command here
-    //for now just reflect in the serial
-    Serial.print("Command >> ");
-    Serial.println(parser.getCommand());
-
-    if (parser.getParamCount()>0){
-      Serial.println("Params");
-
-      for (int i=0; i< parser.getParamCount();i++){
-          Serial.print("Param" + i );
-          Serial.print(" : ");
-          Serial.println(parser.getParam(i));
-      }
-    }
+    //the state machine will handle it if its not handled
   }
 
-  
+  //NOTE: comparison should be
+  //strcmp(parser.getCommand(),"l")==0
 
   //the STATE machine; process only the valid commands in each state
   switch (state){
     case STATE_IDLE:
-      if (!cmdHandled){
+
+      if (!cmdHandled){ 
         if (parser.getCommand() == "POWERON"){
-          //power the motor
-          ServoOn(true);
-
-          //set reference angles on all servos
-
-          Serial.println("Receive PowerOn command");
-          //send back the success message
-          Serial1.println("Overlord is Powered On");
-
-          cmdHandled = true;
           state = STATE_READY;
+          
+          //send the state to the HC06 for logging
         }
       }
       break;
@@ -221,14 +157,21 @@ void loop() {
         if (parser.getCommand() == "MOVE"){
 
           cmdHandled=true;
-          state= isMoveStarted=false;
+          isMoveStarted=false;
           state= STATE_MOVING;
         }
         else if(parser.getCommand()=="SCRAMBLE"){
-
-          state = STATE_SCRAMBLING;
-          isScramblingStarted=false;
-          cmdHandled=true;
+          //format: SCRAMBLE 10 ; to scramble to 10 MOVES
+          if (prepScramble(20))
+          {
+            //at this point,scrambleMoves is filled up to scrambleCounter
+            state = STATE_SCRAMBLING;
+            isScramblingStarted=false;
+            cmdHandled=true;
+          }
+          else{
+            //send error to HC06
+          }
         }
         else if (parser.getCommand() == "SOLVECUBE"){
           state = STATE_PREPARESOLVE;
@@ -248,34 +191,41 @@ void loop() {
       }
       else{
         //move already started ; check if all servos are not moving
-        bool isMoving=false;
-        for (int i=0; i<6 ; i++){
-          if (pServoArm[i]->isMoving()){
-            isMoving=true;
-            break;
-          }
-        }
-
-        if (!isMoving){
-          //we done moving
-          Serial1.println("Move done");
-          state = STATE_READY;
-        }
       }
       break;
     case STATE_SCRAMBLING:
       if (!isScramblingStarted){
-
+        //loop the scrambleMoves up to scrambleCounter and physically rotate the cube
         isScramblingStarted = true;
+        scrambleindex=0;
+        currentmove = scrambleMoves[scrambleindex++];
+ 
+        decodeMove(currentmove,activemotorid,steps);
+        overlord.moveRelative(activemotorid, steps);
       }
       else{
-        //scrambling is already started; just exahust all moves
+        //scrambling is already started; just exhaust all moves
+        if (!overlord.isBusy(activemotorid)){
+          if (scrambleindex >= scrambleCounter)
+          {
+            state = STATE_READY;
+            Serial1.println("Scramble complete. Transitioning to READY.");
+          }
+          else{ //there are still moves left
+            currentmove = scrambleMoves[scrambleindex++]; //get the next move
 
+            decodeMove(currentmove,activemotorid,steps);
+            overlord.moveRelative(activemotorid, steps);
+          }
+        }
+        else
+        {
+            overlord.update();
+        }
       }
       break;
     case STATE_PREPARESOLVE:
       //get the colors from the PC
-      Serial1.println("GETCOLORS");
       state=STATE_WAITINGFORCOLORS;
       break;
     case STATE_WAITINGFORCOLORS:
@@ -304,20 +254,15 @@ void loop() {
 }
 
 void serialEvent() {
-  while (Serial.available()) {
-    char inChar = (char)Serial.read();
-    if (inChar == '\n') {
-      stringComplete = true;
-    } else {
-      inputString += inChar;
-    }
-  }
+
 }
 
 
 void checkBTSerial() {
   while (Serial1.available()) {
     char c = Serial1.read();
+
+    if (c == '\r') continue;  // Skip carriage return
 
     if (c == '\n') {
       btInputBuffer[btIndex] = '\0';
@@ -340,133 +285,7 @@ void executeCommandBT(String cmd){
 }
 
 void executeCommand(String cmd) {
-  cmd.trim();  // Remove whitespace and newline
-
-  if (cmd == "print") {
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "shuffle") {
-    pCube->shuffle(50);
-  } else if (cmd == "init") {
-    pCube->initialize();
-  } else if (cmd == "solve") {
-    clearSerialMonitor();
-    printCube(pCube);
-    pCube->solve();
-    printCube(pCube);
-  } else if (cmd == "cw") {
-    pServoArm[1]->rotate90CW();
-    Serial.println("cw");
-  } else if (cmd == "ccw") {
-    pServoArm[1]->rotate90CCW();
-    Serial.println("ccw");
-  } else if (cmd == "180") {
-    pServoArm[1]->rotate180();
-    Serial.println("180");
-  }
-  else if (cmd == "d") {
-    pCube->d();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "dp") {
-    pCube->dp();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "l") {
-    pCube->l();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "lp") {
-    pCube->lp();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "f") {
-    pCube->f();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "fp") {
-    pCube->fp();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "r") {
-    pCube->r();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "rp") {
-    pCube->rp();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "b") {
-    pCube->b();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "bp") {
-    pCube->bp();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "u") {
-    pCube->u();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "up") {
-    pCube->up();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "d2") {
-    pCube->d2();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "l2") {
-    pCube->l2();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "f2") {
-    pCube->f2();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "r2") {
-    pCube->r2();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "b2") {
-    pCube->b2();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else if (cmd == "u2") {
-    pCube->u2();
-    clearSerialMonitor();
-    printCube(pCube);
-  } else {
-    Serial.println("Unknown Command");
-  }
-}
-
-
-
-
-
-//local functions
-void initAllPins(){
-
-  pinMode(ResetPin,OUTPUT);
-  pinMode(SERVODRIVER,OUTPUT);
-}
-
-void readAngles(){
-  uint8_t buffer[2];
-  for (int i=0;i<2;i++){
-    if (!mux.readFromDevice(i+2, DEV_ADDR, REG_ADDR, buffer, 2))
-    {
-        Serial.println("Reading failed");
-    }
-    else{
-        uint16_t value = ((uint16_t)buffer[0] << 8) | buffer[1]; // Combine MSB/LSB
-        value = value >> 2;                                  // remove the last 2 bits
-        double angle = (value/16384.0)*360.0;
-
-        pServoArm[i]->setCurrentAngle(angle);
-    }
-  }
+ 
 }
 
 float readBattery(){
@@ -477,95 +296,37 @@ float readBattery(){
   return vbatt;
 }
 
+//prepare a random movements to scramble the cube
+//count is how many many moves to do; should be maximum 20 scrambling moves 
+//the moves are grouped into 3; there should be no serial moves that are from the same group
+//like l and lp or l180 and l180
 
-void ServoOn(bool ok){
-  if (ok)
-    digitalWrite(SERVODRIVER,1);
-  else
-    digitalWrite(SERVODRIVER,0);
+
+
+bool prepScramble(uint numMoves) {
+  if (numMoves > MAX_SCRAMBLE_MOVES)
+    numMoves = MAX_SCRAMBLE_MOVES;
+
+  int index = 0;
+  int lastGroup = -1;
+
+  while (index < numMoves) {
+    int move = random(NUM_MOVE_TYPES);
+    int group = move / 3;
+
+    if (group != lastGroup) {
+      scrambleMoves[index++] = move;
+      lastGroup = group;
+    }
+  }
+
+  scrambleCounter = index;
+  return true;
 }
 
-
-void clearSerialMonitor() {
-  for (int i = 0; i < 50; i++) {
-    Serial.println();
-  }
+void decodeMove(int move, int& motor, int& steps) {
+  int type = move % 3;
+  motor = move / 3;
+  steps = (type == 0) ? 512 : (type == 1 ? -512 : 1024);
 }
 
-void printFace(int face) {
-  char arr[3][3];
-
-  if (pCube->getFace(face, &arr[0][0]) == true) {
-
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < 3; j++) {
-        Serial.print(arr[i][j]);
-        Serial.print(' ');
-      }
-      Serial0.println();
-    }
-  }
-}
-
-void printCube(Rubik* cube) {
-  char arr[9][12];
-  char temp[3][3];
-
-  //initialize the array
-  for (int i = 0; i < 9; i++) {
-    for (int j = 0; j < 12; j++) {
-      arr[i][j] = ' ';
-    }
-  }
-
-  cube->getFace(0, &temp[0][0]);
-  for (int i = 3; i < 6; i++) {
-    for (int j = 0; j < 3; j++) {
-      arr[i][j] = temp[i - 3][j];
-    }
-  }
-
-  cube->getFace(1, &temp[0][0]);
-  for (int i = 3; i < 6; i++) {
-    for (int j = 3; j < 6; j++) {
-      arr[i][j] = temp[i - 3][j - 3];
-    }
-  }
-
-  cube->getFace(2, &temp[0][0]);
-  for (int i = 3; i < 6; i++) {
-    for (int j = 6; j < 9; j++) {
-      arr[i][j] = temp[i - 3][j - 6];
-    }
-  }
-
-  cube->getFace(3, &temp[0][0]);
-  for (int i = 3; i < 6; i++) {
-    for (int j = 9; j < 12; j++) {
-      arr[i][j] = temp[i - 3][j - 9];
-    }
-  }
-
-  cube->getFace(4, &temp[0][0]);
-  for (int i = 0; i < 3; i++) {
-    for (int j = 3; j < 6; j++) {
-      arr[i][j] = temp[i][j - 3];
-    }
-  }
-
-  cube->getFace(5, &temp[0][0]);
-  for (int i = 6; i < 9; i++) {
-    for (int j = 3; j < 6; j++) {
-      arr[i][j] = temp[i - 6][j - 3];
-    }
-  }
-
-  //print
-  for (int i = 0; i < 9; i++) {
-    for (int j = 0; j < 12; j++) {
-      Serial.print(arr[i][j]);
-      Serial.print(' ');
-    }
-    Serial.println();
-  }
-}

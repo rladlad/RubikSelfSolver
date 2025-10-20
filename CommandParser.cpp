@@ -44,10 +44,10 @@ const char* CommandParser::getParam(int index) const {
 }
 
 bool CommandParser::isValidParam(const char* param) {
-  for (int i = 0; param[i] != '\0'; i++) {
-    if (!isdigit(param[i]) && param[i] != '-' && param[i] != '.') {
-      return false;
-    }
-  }
+  // for (int i = 0; param[i] != '\0'; i++) {
+  //   if (!isdigit(param[i]) && param[i] != '-' && param[i] != '.') {
+  //     return false;
+  //   }
+  // }
   return true;
 }
