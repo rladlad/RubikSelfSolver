@@ -1,5 +1,7 @@
 #include <Wire.h>
 
+#define NUM_MOTORS 6
+
 class TCA6424A {
 public:
   static const uint8_t DEFAULT_ADDR = 0x22;
@@ -22,6 +24,16 @@ public:
 
     uint8_t pattern = stepSequence[stepIndex];
     writeMotorPattern(gpioStart, pattern);
+  }
+
+  void powerDownMotor(uint8_t motorId){
+    if (motorId >= NUM_MOTORS) return;
+
+    uint8_t gpioStart = motorId * 4;
+    const uint8_t powerDownPattern = 0b0000;
+
+    writeMotorPattern(gpioStart, powerDownPattern);
+    motorSteps[motorId] = 0;
   }
 
 private:

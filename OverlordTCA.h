@@ -1,6 +1,8 @@
 #include "TCA6424.h"
 #include <map>
 
+#define NUM_MOTORS 6
+
 class OverlordTCA {
 public:
 
@@ -40,6 +42,12 @@ public:
 
   void jog(uint8_t motorId, int dir) {
     moveRelative(motorId, dir);
+  }
+
+  void powerDownMotors(){
+    for (int i=0; i<NUM_MOTORS; i++){
+      tca.powerDownMotor(i);
+    }
   }
 
   bool isBusy(uint8_t motorId) {
