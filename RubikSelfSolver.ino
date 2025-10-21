@@ -381,7 +381,9 @@ void loop() {
           if (moveIndex >= numberOfMoves)
           {
             state=STATE_SOLVED;
-            Serial.println("THE CUBE IS SOLVED");
+            Serial.print("THE CUBE IS SOLVED IN ");
+            Serial.print(numberOfMoves);
+            Serial.println(" MOVES");
           }
           else{ //there are still moves left
             currentMove = pCube->getMoveAt(moveIndex++);
