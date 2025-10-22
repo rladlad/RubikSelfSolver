@@ -18,6 +18,7 @@ const int STATE_READYTOSOLVE = 7;
 const int STATE_PREPSOLUTION = 8;
 const int STATE_SOLVING = 9;
 const int STATE_SOLVED = 10;
+const int STATE_JOGGING = 11;
 
 
 
@@ -74,6 +75,13 @@ int scrambleindex;
 //timers
 unsigned long battTimer=0;
 
+//function prototypes
+void checkBTSerial();
+bool prepScramble(uint numMoves) ;
+void decodeMove(int move, int& motor, int& steps);
+void convertMove(int move, int& motor, int& steps);
+void printMove();
+bool checkCubeColors();
 
 
 void setup() {
@@ -116,6 +124,7 @@ void setup() {
 void loop() {
 
   //report battery voltage every five seconds
+  //we need to send this ONLY when MOTORS are not busy (especially if its causing jitters. Not yet done)
   if (millis() >= battTimer + 5000){
       float value = readBattery();
 
@@ -140,7 +149,6 @@ void loop() {
     if (result){
       cmdHandled=false;
     }
-
     //the state machine will handle it if its not handled
   }
 
@@ -172,10 +180,57 @@ void loop() {
     case STATE_READY:
       if (!cmdHandled){
         if (strcmp(parser.getCommand(),"MOVE")==0){
+          //this is for QUARTER and 180 MOVES with format MOVE MotorID CCW; ex MOVE 0 CCW
+          Serial.println("MOVE command received.");
+          Serial.println("Switching to MOVE");
+          const char* sid = parser.getParam(0);
+          const char* sdir = parser.getParam(1);
+          if (sid != nullptr && sdir != nullptr){
+            activemotorid = std::atoi(sid);
+            steps=0;
+            if (strcmp(sdir,"CW")==0){
+              steps=512;
+            }
+            else if (strcmp(sdir,"CCW")==0){
+              steps=-512;
+            }
+            else if (strcmp(sdir,"180")==0){
+              steps=1024;  
+            }
+            else{
+              Serial.println("Parameter error for MOVE(No DIR specified)");
+            }
+
+            isMoveStarted=false;
+            state= STATE_MOVING;
+          }
+          else{
+            Serial.println("Parameter error for MOVE (ex MOVE MotorId DIR) ");
+          }
 
           cmdHandled=true;
-          isMoveStarted=false;
-          state= STATE_MOVING;
+          
+        }
+        else if (strcmp(parser.getCommand(),"JOG")==0){
+          //this will handle JOG with format JOG MotorIID STEPS; JOG 0 -8
+          Serial.println("JOG command received.");
+          Serial.println("Switching to JOG");
+          const char* sid = parser.getParam(0);
+          const char* sdir = parser.getParam(1);
+          if (sid != nullptr && sdir != nullptr){
+            activemotorid = std::atoi(sid);
+            steps=8;
+            if (sdir != nullptr){
+              steps=std::atoi(sdir);
+            }
+            isMoveStarted=false;
+            state= STATE_JOGGING;
+          }
+          else{
+            Serial.println("Parameter error for JOG (ex JOG MotorId DIR) ");
+          }
+
+          cmdHandled=true;
         }
         else if(strcmp(parser.getCommand(),"SCRAMBLE")==0){
           //format: SCRAMBLE 10 ; to scramble to 10 MOVES
@@ -209,11 +264,42 @@ void loop() {
       //no command should be processed here; instead just initiate the start and ending of a MOVE
       if (!isMoveStarted){
         //do the move
-
+        overlord.moveRelative(activemotorid, steps);
         isMoveStarted = true;
       }
       else{
         //move already started ; check if all servos are not moving
+        if (!overlord.isBusy(activemotorid)){
+          //move is finished
+          Serial.println("MOVE is DONE");
+          Serial.println("Switching to READY");
+          state = STATE_READY;
+        }
+        else
+        {
+            overlord.update();
+        }
+      }
+      break;
+    case STATE_JOGGING:
+      //no command should be processed here; instead just initiate the start and ending of a MOVE
+      if (!isMoveStarted){
+        //do the JOG
+        overlord.moveRelative(activemotorid, steps);
+        isMoveStarted = true;
+      }
+      else{
+        //JOG already started ; check if all servos are not moving
+        if (!overlord.isBusy(activemotorid)){
+          //JOG is finished
+          Serial.println("JOG is DONE");
+          Serial.println("Switching to READY");
+          state = STATE_READY;
+        }
+        else
+        {
+            overlord.update();
+        }
       }
       break;
     case STATE_SCRAMBLING:
@@ -396,7 +482,7 @@ void loop() {
         {
             overlord.update();
         }
-       
+     
       }
       break;
     case STATE_SOLVED:
@@ -407,13 +493,20 @@ void loop() {
       break;
   }
 
-  if (cmdHandled){
-    
-  }
-  else{
-    //check for unhandled commands; like abort; or if it is an unknown command
-  }
 
+  if (!cmdHandled){
+    //check for unhandled commands; like abort; or if it is an unknown command
+    if (strcmp(parser.getCommand(),"ABORT")==0)
+    {
+      Serial.println("ABORTING!!!");
+      state = STATE_IDLE;
+      cmdHandled=true;
+    }
+    else{
+      Serial.println("UNKNOWN COMMAND");
+      cmdHandled=true;
+    }
+  }
 }
 
 bool checkCubeColors(){
@@ -458,8 +551,6 @@ float readBattery(){
 //count is how many many moves to do; should be maximum 20 scrambling moves 
 //the moves are grouped into 3; there should be no serial moves that are from the same group
 //like l and lp or l180 and l180
-
-
 
 bool prepScramble(uint numMoves) {
   if (numMoves > MAX_SCRAMBLE_MOVES)
