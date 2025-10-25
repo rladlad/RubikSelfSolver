@@ -174,6 +174,8 @@ void loop() {
           //send the state to the HC06 for logging
           Serial.println("Motors are ON.");
           Serial.println("Switching to READY");
+
+          cmdHandled=true;
         }
       }
       break;
