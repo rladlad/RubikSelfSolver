@@ -70,7 +70,9 @@ int currentmove;
 int activemotorid;
 int scrambleindex;
 
-
+//for color parsing
+const int COLOR_COUNT = 54;
+int colors[COLOR_COUNT];
 
 //timers
 unsigned long battTimer=0;
@@ -82,6 +84,9 @@ void decodeMove(int move, int& motor, int& steps);
 void convertMove(int move, int& motor, int& steps);
 void printMove();
 bool checkCubeColors();
+bool parseColors(const char* input) ;
+
+
 
 //ALIAS declaration for Serial 
 Stream& btSerial = Serial;  //replace with Serial1 if using BT
@@ -371,12 +376,17 @@ void loop() {
         if (!cmdHandled){
           //get the command and parameter and process it; the valid command is COLORS
           if(strcmp(parser.getCommand(),"COLORS")==0){
-         
-            //if colors are recieved, switching to CHECKING CUBE COLORS
-            btSerial.println("Colors are recieved.");
-            btSerial.println("Switching to CHECKINGCOLORS");
-            state = STATE_CHECKINGCUBECOLORS;
-            
+            //parse the colors
+            if (!parseColors(parser.getParam(0))){
+                btSerial.println("Passed in colors are in error.");
+                state=STATE_PREPARESOLVE;
+            }
+            else{
+              //if colors are recieved and parsed; the colors[] array will have the passed in colors
+              btSerial.println("54 Colors are recieved.");
+              btSerial.println("Switching to CHECKINGCOLORS");
+              state = STATE_CHECKINGCUBECOLORS;
+            }  
             cmdHandled=true;
           }
         }
@@ -392,10 +402,12 @@ void loop() {
       }
       else{
         //the cube colors are OK; and the cube should have a SOLUTION;
-        //TEMPORARY 
-        pCube->initialize();  //init to solved
-        pCube->shuffle(200);
-        pCube->solve();   //the moves will be filled in return
+        //pCube->initialize();  //init to solved
+        //pCube->shuffle(200);
+        //pCube->solve();   //the moves will be filled in return
+
+        pCube->initialize(colors);
+        pCube->solve();
 
         if (pCube->isSolved()){
           //optimize moves
@@ -515,6 +527,8 @@ void loop() {
 }
 
 bool checkCubeColors(){
+
+  //should check the colors[] array for correctness (at least 9 colors of each type);
   return true;
 }
 
@@ -605,4 +619,18 @@ void printMove(){
   btSerial.print(activemotorid);
   btSerial.print(" Steps :");
   btSerial.println(steps);
+}
+
+bool parseColors(const char* input) {
+
+  // Check length
+  if (strlen(input) != COLOR_COUNT) return false;
+
+  for (int i = 0; i < COLOR_COUNT; i++) {
+    char c = input[i];
+    if (c < '0' || c > '5') return false; // validate range
+    colors[i] = c - '0';
+  }
+
+  return true;
 }
