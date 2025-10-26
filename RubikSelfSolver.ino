@@ -244,7 +244,13 @@ void loop() {
         }
         else if(strcmp(parser.getCommand(),"SCRAMBLE")==0){
           //format: SCRAMBLE 10 ; to scramble to 10 MOVES
-          if (prepScramble(20))
+          const char* smoves = parser.getParam(0); 
+          int nummoves = 20;
+          if (smoves != nullptr){
+            nummoves = std::atoi(smoves);
+          }
+          if (smoves)
+          if (prepScramble(nummoves))
           {
             //at this point,scrambleMoves is filled up to scrambleCounter
             btSerial.println("Switching to SCRAMBLING");
@@ -527,8 +533,21 @@ void loop() {
 }
 
 bool checkCubeColors(){
-
   //should check the colors[] array for correctness (at least 9 colors of each type);
+  int counters[6]={0};
+
+  for (int i=0; i < COLOR_COUNT;i++){
+    if (colors[i] > 5 )
+      return false; //out of range
+    
+    counters[colors[i]] += 1;
+  }  
+  
+  for (int i=0 ; i< 6; i++){
+    if (counters[i] != 9)
+      return false;
+  }
+  
   return true;
 }
 
