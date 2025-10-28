@@ -50,6 +50,10 @@ public:
     }
   }
 
+  void powerDownMotor(uint8_t motorId){
+    tca.powerDownMotor(motorId);
+  }
+
   bool isBusy(uint8_t motorId) {
     return motors[motorId].currentStep != motors[motorId].targetStep;
   }

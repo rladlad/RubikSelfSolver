@@ -4,6 +4,7 @@
 #include "OverlordTCA.h"
 #include "CommandParser.h"
 #include <wire.h>
+#include <HardwareSerial.h>
 
 using namespace RubikBot;
 
@@ -23,8 +24,8 @@ const int STATE_JOGGING = 11;
 
 
 //GPIO defines
-#define UART_TX 2       //this is RX pin in ESP32
-#define UART_RX 1       //this is TX pin in ESP32
+#define UART_TX 20       //this is RX pin in ESP32
+#define UART_RX 19       //this is TX pin in ESP32
 
 #define SCLPin 14 
 #define SDAPin 15 
@@ -76,6 +77,8 @@ int colors[COLOR_COUNT];
 
 //timers
 unsigned long battTimer=0;
+bool battInfoPending = false; //set to true when there is batt info that is needed to be sent
+String battInfo;              //the info to be sent
 
 //function prototypes
 void checkBTSerial();
@@ -86,10 +89,11 @@ void printMove();
 bool checkCubeColors();
 bool parseColors(const char* input) ;
 
+const float ADC_CORRECTION = 7.4 / 2337.0; // ≈ 0.003166
 
 
 //ALIAS declaration for Serial 
-Stream& btSerial = Serial;  //replace with Serial1 if using BT
+Stream& btSerial = Serial1;  //replace with Serial1 if using BT
 
 
 void setup() {
@@ -98,6 +102,7 @@ void setup() {
   Serial1.begin(115200, SERIAL_8N1, UART_RX, UART_TX);  //for the HC06 serial
   delay(500);
   Serial.println("Serial Ready");
+  btSerial.println("BT Serial Ready");
 
   //initialize i2c controller here to read/write to the TCA
   Wire.begin(SDAPin,SCLPin); //join as master
@@ -121,12 +126,16 @@ void setup() {
     overlord.setMaxSpeed(i, 20.0f);
   }
 
+
   //read the initial battery on startup so we wont be surprised
   float value = readBattery();
   String message = "batt:" + String(value, 2); // 2 decimal place
   message.concat("\n");
-  Serial1.println(message);
-    
+  btSerial.println(message);
+
+  //all motors should be down initially 
+  overlord.powerDownMotors(); //power down all motors
+
 }
 
 void loop() {
@@ -137,9 +146,10 @@ void loop() {
       float value = readBattery();
 
       //report to the BT serial
-      String message = "batt:" + String(value, 2); // 2 decimal place
-      message.concat("\n");
-      Serial1.println(message);
+      battInfo = "batt:" + String(value, 2); // 2 decimal place
+
+      //set info pending to true
+      battInfoPending=true;
 
       battTimer = millis();
   }
@@ -289,6 +299,7 @@ void loop() {
           //move is finished
           btSerial.println("MOVE is DONE");
           btSerial.println("Switching to READY");
+          overlord.powerDownMotor(activemotorid);
           state = STATE_READY;
         }
         else
@@ -310,6 +321,7 @@ void loop() {
           //JOG is finished
           btSerial.println("JOG is DONE");
           btSerial.println("Switching to READY");
+          overlord.powerDownMotor(activemotorid);
           state = STATE_READY;
         }
         else
@@ -335,6 +347,15 @@ void loop() {
       else{
         //scrambling is already started; just exhaust all moves
         if (!overlord.isBusy(activemotorid)){
+          //power down the motor
+          overlord.powerDownMotor(activemotorid);
+
+          //if there as batt info to send , do it
+          if (battInfoPending){
+            btSerial.println(battInfo);
+            battInfoPending=false;
+          }
+
           if (scrambleindex >= scrambleCounter)
           {
             state = STATE_READY;
@@ -487,6 +508,15 @@ void loop() {
       }
       else{
         if (!overlord.isBusy(activemotorid)){
+          //power down
+          overlord.powerDownMotor(activemotorid);
+
+          //if there as batt info to send , do it
+          if (battInfoPending){
+            btSerial.println(battInfo);
+            battInfoPending=false;
+          }
+
           if (moveIndex >= numberOfMoves)
           {
             state=STATE_SOLVED;
@@ -516,6 +546,13 @@ void loop() {
       break;
   }
 
+  //if there is still batt info to be sent
+  //send it now
+  if (battInfoPending){
+    btSerial.println(battInfo);
+    battInfoPending=false;
+  }
+
 
   if (!cmdHandled){
     //check for unhandled commands; like abort; or if it is an unknown command
@@ -531,6 +568,8 @@ void loop() {
     }
   }
 }
+
+
 
 bool checkCubeColors(){
   //should check the colors[] array for correctness (at least 9 colors of each type);
@@ -579,9 +618,11 @@ void checkBTSerial() {
 
 float readBattery(){
   //read the BATYT_ADC pin and return the equivalent value in volts
-  int value= analogRead(BATT_ADC); //12 bits adc
-  float vbatt = (147.0/47.0) * (value / 4095.0);
+  int value = analogRead(BATT_ADC); // 0–4095
+  float vbatt = value * 0.003166;   // Empirical correction factor
 
+  //btSerial.print("ADC Value:");
+  //btSerial.println(value);
   return vbatt;
 }
 
