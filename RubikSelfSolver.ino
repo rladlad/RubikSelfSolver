@@ -450,6 +450,7 @@ void loop() {
           //unable to solve the cube even if the colors are OK. Strange
           btSerial.println("UNABLE TO SOLVE CUBE");
           btSerial.println("Switching to IDLE");  
+          state = STATE_IDLE;
         }
       }
       break;
