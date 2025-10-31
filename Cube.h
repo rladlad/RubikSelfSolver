@@ -5,6 +5,7 @@
 #include "element.h"
 #include "globals.h"
 #include "cornerpiece.h"
+#include <Arduino.h>
 
 namespace RubikBot{
 
@@ -112,7 +113,9 @@ namespace RubikBot{
         bool shuffle(int count);	//shuffle the cube from initial state count number of times
                                     //the state of the cube should be tracked; max 200 count
         
-
+        //get facelets
+        String getFaceletString();
+        
         void solve();
         int optimizeMoves();
         void setElement(int x, int y, Element* element);

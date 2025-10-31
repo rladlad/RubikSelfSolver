@@ -655,7 +655,6 @@ namespace RubikBot{
         if (!isSolved()) {
             solveYellowLayer();
         }
-
     }
 
     bool Rubik::isSolved(){
@@ -7699,6 +7698,16 @@ namespace RubikBot{
         return true;
     }
 
+    String Rubik::getFaceletString(){
+        String s="";
+        for (int i=0; i<6; i++){
+            for (int j=0; j<9; j++){
+                s += elements[i][j]->getColor();
+            }
+        }
+        return s;
+    }
+
     int Rubik::getErroredColors()
     {
         return colorError;
@@ -7766,6 +7775,7 @@ namespace RubikBot{
             break;
         }
     }
+
 
 
 }//namespace

@@ -20,6 +20,7 @@ const int STATE_PREPSOLUTION = 8;
 const int STATE_SOLVING = 9;
 const int STATE_SOLVED = 10;
 const int STATE_JOGGING = 11;
+const int STATE_TEST = 12;
 
 
 
@@ -70,6 +71,7 @@ int scrambleCounter = 0;
 int currentmove;
 int activemotorid;
 int scrambleindex;
+String activedirection;
 
 //for color parsing
 const int COLOR_COUNT = 54;
@@ -146,7 +148,7 @@ void loop() {
       float value = readBattery();
 
       //report to the BT serial
-      battInfo = "batt:" + String(value, 2); // 2 decimal place
+      battInfo = "batt: " + String(value, 2); // 2 decimal place
 
       //set info pending to true
       battInfoPending=true;
@@ -175,6 +177,16 @@ void loop() {
 
   //the STATE machine; process only the valid commands in each state
   switch (state){
+    case STATE_TEST:
+        if (strcmp(parser.getCommand(),"TEST")==0){
+          pCube->initialize();  //init to solved
+          pCube->shuffle(200);
+          //pCube->solve();   //the moves will be filled in return
+          String s= pCube->getFaceletString();
+          Serial.println(s);
+        }
+        battInfoPending = false;  //dont send batt info
+        break;
     case STATE_IDLE:
       //power down if not yet done
       if (isPoweredUp){
@@ -435,10 +447,15 @@ void loop() {
 
         pCube->initialize(colors);
         pCube->solve();
+        String s= pCube->getFaceletString();
+        Serial.println(s);
 
         if (pCube->isSolved()){
           //optimize moves
           pCube->optimizeMoves();
+          btSerial.print("The cube can be solved in ");
+          btSerial.print(pCube->getNumberOfMoves());
+          btSerial.println(" moves");
 
           //SWITCH to READY TO SOLVE to await the GOAHEAD from 
           btSerial.println("Click on SOLVE to go ahead.");
@@ -503,12 +520,19 @@ void loop() {
           convertMove(currentMove,activemotorid,steps);
           printMove();
 
+          
           overlord.moveRelative(activemotorid, steps);
           isSolvingStarted=true;
         }
       }
       else{
         if (!overlord.isBusy(activemotorid)){
+          //send to the btserial for visualization before moving on to the next move
+          btSerial.print("move ");
+          btSerial.print(activemotorid);
+          btSerial.print(" ");
+          btSerial.println(activedirection);
+          
           //power down
           overlord.powerDownMotor(activemotorid);
 
@@ -668,18 +692,25 @@ void convertMove(int move, int& motor, int& steps) {
     int type = move % 2;
     motor = move / 2;
     steps = (type == 0) ? 512 : -512;
+
+    if (steps > 0){
+      activedirection = "cw";
+    }
+    else
+      activedirection = "ccw";
   }
   else{
     motor=move-12;
     steps=1024;
+    activedirection = "180";
   }
 }
 
 void printMove(){
-  btSerial.print("MotorID :");
-  btSerial.print(activemotorid);
-  btSerial.print(" Steps :");
-  btSerial.println(steps);
+  Serial.print("MotorID :");
+  Serial.print(activemotorid);
+  Serial.print(" Steps :");
+  Serial.println(steps);
 }
 
 bool parseColors(const char* input) {
