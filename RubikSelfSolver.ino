@@ -392,7 +392,7 @@ void loop() {
       break;
     case STATE_PREPARESOLVE:
       //get the colors from the PC ; send a command to the pc
-      btSerial.println("COMMAND GETCOLORS");
+      btSerial.println("GETCOLORS");
       btSerial.println("Switching to WAITINGFORCOLORS");
       state=STATE_WAITINGFORCOLORS;
       isWaitingTimeSet=false;
